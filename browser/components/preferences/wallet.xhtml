@@ -1,0 +1,49 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+<!-- More From Mozilla panel -->
+
+<script src="chrome://browser/content/preferences/wallet.js"/>
+<html:template xmlns="http://www.w3.org/1999/xhtml" id="template-paneWallet">
+
+  <div id="walletCategory-header"
+    class="subcategory"
+    data-hidden-from-search="true"
+    hidden="true"
+    data-category="paneWallet">
+    <h1 class="title">⚡️Lightning Network の設定だよ</h1>
+    <p class="subtitle">🚧 Under construction 🚧</p>
+  </div>
+  <div id="walletCategory-body"
+    data-category="paneWallet"
+    hidden="true"
+    data-hidden-from-search="true">
+
+    <div>
+      <h2>既存のノードやウォレットを繋ごう</h2>
+      <p>そのうち自前でノード動かすかもしれないけど、どのみちホットウォレットだからニーズあるかな？</p>
+    </div>
+
+    <div>
+      <p>LNC paring phrase</p>
+      <hbox>
+        <html:input id="lnc-pairphrase"
+                          type="text"
+                          class="uri-element check-home-page-controlled"
+                          style="flex: 1;" />
+        <button id="lnc-register"
+                    is="highlightable-button"
+                    flex="1"
+                    class="homepage-button check-home-page-controlled">regist</button>
+      </hbox>
+    </div>
+
+  </div>
+
+  <div id="walletCategory"
+    data-category="paneWallet"
+    hidden="true"
+    data-hidden-from-search="true">
+  </div>
+</html:template>
