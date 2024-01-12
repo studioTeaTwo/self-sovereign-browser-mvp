@@ -3,6 +3,11 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 browser.jar:
-    content/browser/wallet.html                      (content/wallet.html)
-    content/browser/wallet.css                       (content/wallet.css)
-    content/browser/wallet.js                        (content/wallet.js)
+% content wallet %content/wallet/ contentaccessible=yes
+  content/wallet/css (content/css/*)
+  content/wallet/fonts (content/fonts/*)
+  content/wallet/img (content/img/*)
+  content/wallet/wallet.html (content/wallet.html)
+  content/wallet/js/vendor.bundle.js (content/js/vendor.bundle.js)
+  content/wallet/js/main.bundle.js (content/js/main.bundle.js)
+  content/wallet/js/home/entry.js (content/js/home/entry.js)

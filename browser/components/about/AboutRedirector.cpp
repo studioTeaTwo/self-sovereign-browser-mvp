@@ -160,7 +160,7 @@ static const RedirEntry kRedirMap[] = {
     {"ion", "chrome://browser/content/ion.html",
      nsIAboutModule::ALLOW_SCRIPT | nsIAboutModule::HIDE_FROM_ABOUTABOUT |
          nsIAboutModule::IS_SECURE_CHROME_UI},
-    {"wallet", "chrome://browser/content/wallet.html",
+    {"wallet", "chrome://wallet/content/wallet.html",
      nsIAboutModule::ALLOW_SCRIPT | nsIAboutModule::HIDE_FROM_ABOUTABOUT |
          nsIAboutModule::IS_SECURE_CHROME_UI},
 };
