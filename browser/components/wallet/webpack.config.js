@@ -6,7 +6,7 @@
 module.exports = {
   mode: "production",
   entry: {
-    main: "./content/js/main.js",
+    main: "./src/main.ts",
   },
   output: {
     filename: "[name].bundle.js",
@@ -15,17 +15,14 @@ module.exports = {
   module: {
     rules: [
       {
-        test: /\.jsx?$/,
+        test: /\.tsx?$/,
         exclude: /node_modules/,
-        loader: "babel-loader",
-        options: {
-          presets: ["@babel/preset-react"],
-        },
+        loader: "ts-loader",
       },
     ],
   },
   resolve: {
-    extensions: [".js", ".jsx"],
+    extensions: [".js", ".ts", ".tsx"],
   },
   optimization: {
     minimize: false,

@@ -3,6 +3,7 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import React, { useState, useEffect, useCallback } from "react";
+
 // import panelMessaging from "../../messages";
 
 function Home(props) {
@@ -14,7 +15,7 @@ function Home(props) {
 
   return (
     <div className="wallet_home_container">
-      YO
+      YO!
     </div>
   );
 }

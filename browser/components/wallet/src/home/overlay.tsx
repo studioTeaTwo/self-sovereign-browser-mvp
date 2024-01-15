@@ -7,9 +7,11 @@ It does not contain any logic for saving or communication with the extension or 
 
 import React from "react";
 import ReactDOM from "react-dom";
+import { ChakraProvider } from '@chakra-ui/react'
 import Home from "../components/Home/Home";
 
-var HomeOverlay = function (options) {
+// eslint-disable-next-line no-var
+var HomeOverlay = function () {
   this.inited = false;
   this.active = false;
 };
@@ -24,7 +26,9 @@ HomeOverlay.prototype = {
     this.active = true;
 
     ReactDOM.render(
-      <Home />,
+      <ChakraProvider>
+        <Home />
+      </ChakraProvider>,
       document.querySelector(`body`)
     );
 

@@ -10,4 +10,4 @@ browser.jar:
   content/wallet/wallet.html (content/wallet.html)
   content/wallet/js/vendor.bundle.js (content/js/vendor.bundle.js)
   content/wallet/js/main.bundle.js (content/js/main.bundle.js)
-  content/wallet/js/home/entry.js (content/js/home/entry.js)
+  content/wallet/js/entry.js (content/js/entry.js)

@@ -3,9 +3,15 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 /* global RPMGetStringPref:false */
 
-import HomeOverlay from "./home/overlay.js";
+interface Window {
+  WALLET_PANEL: any
+}
+declare let window: Window
+
+import HomeOverlay from "./home/overlay";
 // import walletPanelMessaging from "./messages.js";
 
+// eslint-disable-next-line no-var
 var WALLET_PANEL = function () {};
 
 WALLET_PANEL.prototype = {

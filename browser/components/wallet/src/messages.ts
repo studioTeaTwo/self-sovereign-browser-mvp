@@ -1,12 +1,13 @@
 /* global RPMRemoveMessageListener:false, RPMAddMessageListener:false, RPMSendAsyncMessage:false */
 
+// eslint-disable-next-line no-var
 var walletPanelMessaging = {
   removeMessageListener(messageId, callback) {
-    RPMRemoveMessageListener(messageId, callback);
+    // RPMRemoveMessageListener(messageId, callback);
   },
 
   addMessageListener(messageId, callback = () => {}) {
-    RPMAddMessageListener(messageId, callback);
+    // RPMAddMessageListener(messageId, callback);
   },
 
   sendMessage(messageId, payload = {}, callback) {
@@ -16,6 +17,7 @@ var walletPanelMessaging = {
       // and we don't want to close a RPMSendQuery promise loop unexpectedly.
       // So instead we setup a response event.
       const responseMessageId = `${messageId}_response`;
+      // eslint-disable-next-line no-var
       var responseListener = responsePayload => {
         callback(responsePayload);
         this.removeMessageListener(responseMessageId, responseListener);
@@ -25,7 +27,7 @@ var walletPanelMessaging = {
     }
 
     // Send message
-    RPMSendAsyncMessage(messageId, payload);
+    // RPMSendAsyncMessage(messageId, payload);
   },
 
   // Click helper to reduce bugs caused by oversight
@@ -43,7 +45,7 @@ var walletPanelMessaging = {
   },
 
   log() {
-    RPMSendAsyncMessage("WALLET_log", arguments);
+    // RPMSendAsyncMessage("WALLET_log", arguments);
   },
 };
 
