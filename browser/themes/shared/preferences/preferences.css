@@ -224,10 +224,6 @@ checkbox {
   list-style-image: url("chrome://browser/skin/preferences/mozilla-logo.svg");
 }
 
-#category-wallet > .category-icon {
-  list-style-image: url("chrome://browser/skin/preferences/category-wallet.svg");
-}
-
 /* All panes */
 
 .info-icon,

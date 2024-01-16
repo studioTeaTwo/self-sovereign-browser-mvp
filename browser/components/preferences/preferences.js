@@ -11,7 +11,6 @@
 /* import-globals-from sync.js */
 /* import-globals-from experimental.js */
 /* import-globals-from moreFromMozilla.js */
-/* import-globals-from wallet.js */
 /* import-globals-from findInPage.js */
 /* import-globals-from /browser/base/content/utilityOverlay.js */
 /* import-globals-from /toolkit/content/preferencesBindings.js */
@@ -227,8 +226,6 @@ function init_all() {
     document.getElementById("category-sync").hidden = false;
     register_module("paneSync", gSyncPane);
   }
-  register_module("paneWallet", gWalletPane);
-
   register_module("paneSearchResults", gSearchResultsPane);
   gSearchResultsPane.init();
   gMainPane.preInit();
@@ -283,7 +280,6 @@ function telemetryBucketForCategory(category) {
     case "search":
     case "sync":
     case "searchresults":
-    case "wallet":
       return category;
     default:
       return "unknown";
