@@ -92,6 +92,7 @@
     <command id="Tools:Search" oncommand="BrowserSearch.webSearch();"/>
     <command id="Tools:Downloads" oncommand="BrowserDownloadsUI();"/>
     <command id="Tools:Addons" oncommand="BrowserOpenAddonsMgr();"/>
+    <command id="Tools:Wallet" oncommand="BrowserOpenWallet();"/>
     <command id="Tools:Sanitize" oncommand="Sanitizer.showUI(window);"/>
     <command id="Tools:PrivateBrowsing"
       oncommand="OpenBrowserWindow({private: true});"/>

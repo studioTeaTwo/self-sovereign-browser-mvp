@@ -8158,6 +8158,13 @@ function BrowserOpenAddonsMgr(aView, { selectTabByViewId = false } = {}) {
   });
 }
 
+/**
+ * Open about:wallet page
+ */
+function BrowserOpenWallet() {
+  switchToTabHavingURI("about:wallet", true);
+}
+
 function AddKeywordForSearchField() {
   if (!gContextMenu) {
     throw new Error("Context menu doesn't seem to be open.");
