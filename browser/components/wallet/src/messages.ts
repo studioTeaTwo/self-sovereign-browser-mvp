@@ -16,14 +16,14 @@ var walletPanelMessaging = {
       // Even though RPMSendQuery returns something, our frame could be closed at any moment,
       // and we don't want to close a RPMSendQuery promise loop unexpectedly.
       // So instead we setup a response event.
-      const responseMessageId = `${messageId}_response`;
+      const responseMessageId = `${messageId}_response`
       // eslint-disable-next-line no-var
-      var responseListener = responsePayload => {
-        callback(responsePayload);
-        this.removeMessageListener(responseMessageId, responseListener);
-      };
+      var responseListener = (responsePayload) => {
+        callback(responsePayload)
+        this.removeMessageListener(responseMessageId, responseListener)
+      }
 
-      this.addMessageListener(responseMessageId, responseListener);
+      this.addMessageListener(responseMessageId, responseListener)
     }
 
     // Send message
@@ -33,20 +33,20 @@ var walletPanelMessaging = {
   // Click helper to reduce bugs caused by oversight
   // from different implementations of similar code.
   clickHelper(element, { source = "", position }) {
-    element?.addEventListener(`click`, event => {
-      event.preventDefault();
+    element?.addEventListener(`click`, (event) => {
+      event.preventDefault()
 
       this.sendMessage("WALLET_openTabWithUrl", {
         url: event.currentTarget.getAttribute(`href`),
         source,
         position,
-      });
-    });
+      })
+    })
   },
 
   log() {
     // RPMSendAsyncMessage("WALLET_log", arguments);
   },
-};
+}
 
-export default walletPanelMessaging;
+export default walletPanelMessaging
