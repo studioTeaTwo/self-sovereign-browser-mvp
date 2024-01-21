@@ -29,7 +29,7 @@ module.exports = {
     splitChunks: {
       cacheGroups: {
         vendor: {
-          test: /[\\/]node_modules[\\/](react|react-dom|scheduler|object-assign)[\\/]/,
+          test: /[\\/]node_modules[\\/](react|react-dom|scheduler|object-assign|@chakra-ui\/react|@emotion\/react|@emotion\/styled|framer-motion)[\\/]/,
           name: "vendor",
           chunks: "all",
         },

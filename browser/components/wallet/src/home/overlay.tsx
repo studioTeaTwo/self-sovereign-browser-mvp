@@ -8,7 +8,7 @@ It does not contain any logic for saving or communication with the extension or 
 import React from "react"
 import ReactDOM from "react-dom"
 import { ChakraProvider } from "@chakra-ui/react"
-import Home from "../components/Home/Home"
+import Home from "../components/Home"
 
 // eslint-disable-next-line no-var
 var HomeOverlay = function () {
