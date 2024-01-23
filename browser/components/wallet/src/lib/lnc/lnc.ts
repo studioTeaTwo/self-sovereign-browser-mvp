@@ -9,7 +9,7 @@ const log = console
 /** The default values for the LncConfig options */
 const DEFAULT_CONFIG = {
   // wasmClientCode: "https://lightning.engineering/lnc-v0.2.8-alpha.wasm",
-  wasmClientCode: "./wasm/lnc-v0.2.8-alpha.wasm",
+  wasmClientCode: "chrome://wallet/content/wasm/lnc-v0.2.8-alpha.wasm",
   namespace: "default",
   serverHost: "mailbox.terminal.lightning.today:443",
 } as Required<LncConfig>
@@ -116,10 +116,16 @@ export default class LNC {
    * Downloads the WASM client binary
    */
   async preload() {
-    this.result = await WebAssembly.instantiateStreaming(
-      fetch(this._wasmClientCode),
-      this.go.importObject
-    )
+    // (ssb) Can't use instantiateStreaming to avoid the error "'application/wasm;charset=utf-8' expected 'application/wasm'"
+    // ref: https://gitlab.torproject.org/tpo/anti-censorship/lox/-/issues/34
+
+    // this.result = await WebAssembly.instantiateStreaming(
+    //   fetch(this._wasmClientCode),
+    //   this.go.importObject
+    // )
+    this.result = await fetch(this._wasmClientCode)
+      .then((response) => response.arrayBuffer())
+      .then((bytes) => WebAssembly.instantiate(bytes, this.go.importObject))
     log.info("downloaded WASM file", this.result)
   }
 

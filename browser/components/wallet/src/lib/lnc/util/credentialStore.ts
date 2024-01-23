@@ -221,7 +221,9 @@ export default class LncCredentialStore implements CredentialStore {
       const store = transaction.objectStore(OBJECTSTORE_KEY)
       const request = store.get(this.namespace)
       request.onsuccess = (event) => {
-        this.persisted = request.result
+        if (request.result) {
+          this.persisted = request.result
+        }
       }
     } catch (error) {
       const msg = (error as Error).message
@@ -234,7 +236,7 @@ export default class LncCredentialStore implements CredentialStore {
   private _save() {
     const transaction = this.db.transaction(OBJECTSTORE_KEY, "readwrite")
     const store = transaction.objectStore(OBJECTSTORE_KEY)
-    store.put(this.persisted)
+    store.put({ ...this.persisted, namespace: this.namespace })
   }
 
   /**

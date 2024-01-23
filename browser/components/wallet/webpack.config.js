@@ -3,10 +3,13 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 /* eslint-env node */
 
+const path = require('path');
+const NodePolyfillPlugin = require('node-polyfill-webpack-plugin');
+
 module.exports = {
   mode: "production",
   entry: {
-    main: "./src/main.ts",
+    main: path.resolve(__dirname, "./src/main.ts"),
   },
   output: {
     filename: "[name].bundle.js",
@@ -16,11 +19,14 @@ module.exports = {
     rules: [
       {
         test: /\.tsx?$/,
-        exclude: /node_modules/,
+        exclude: path.resolve(__dirname, '/node_modules'),
         loader: "ts-loader",
       },
     ],
   },
+  plugins: [
+    new NodePolyfillPlugin(),
+  ],
   resolve: {
     extensions: [".js", ".ts", ".tsx"],
   },

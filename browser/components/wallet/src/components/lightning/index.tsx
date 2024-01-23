@@ -1,5 +1,10 @@
 import React from "react"
+import Lnc from "./Lnc"
 
 export default function (props) {
-  return <div>LNC(Lightning Node Connect)</div>
+  return (
+    <div>
+      <Lnc />
+    </div>
+  )
 }
