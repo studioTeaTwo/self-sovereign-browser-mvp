@@ -139,4 +139,6 @@ export interface CredentialStore {
    * The default is `undefined`.
    */
   clear(memoryOnly?: boolean): void
+
+  init(): void
 }

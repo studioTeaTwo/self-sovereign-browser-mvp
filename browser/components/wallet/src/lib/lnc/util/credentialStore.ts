@@ -8,6 +8,7 @@ import {
 } from "./encryption"
 
 const STORAGE_KEY = "lnc-web"
+const OBJECTSTORE_KEY = "credential"
 
 /**
  * A wrapper around `window.localStorage` used to store sensitive data required
@@ -16,7 +17,9 @@ const STORAGE_KEY = "lnc-web"
  */
 export default class LncCredentialStore implements CredentialStore {
   // the data to store in localStorage
+  // (ssb) replace to indexedDB
   private persisted = {
+    namespace: "", // indexedDB record key
     salt: "",
     cipher: "",
     serverHost: "",
@@ -38,14 +41,27 @@ export default class LncCredentialStore implements CredentialStore {
   /** The namespace to use in the localStorage key */
   private namespace: string = "default"
 
+  private db: IDBDatabase
+  private openRequest: IDBOpenDBRequest
+
   /**
    * Constructs a new `LncCredentialStore` instance
    */
   constructor(namespace?: string, password?: string) {
     if (namespace) this.namespace = namespace
 
-    // load data stored in localStorage
-    this._load()
+    if (globalThis.indexedDB) {
+      this.openRequest = globalThis.indexedDB.open(STORAGE_KEY, 1)
+      this.openRequest.onupgradeneeded = () => {
+        this.db = this.openRequest.result
+        if (!this.db.objectStoreNames.contains(OBJECTSTORE_KEY)) {
+          this.db.createObjectStore(OBJECTSTORE_KEY, { keyPath: "namespace" })
+        }
+      }
+      this.openRequest.onsuccess = () => {
+        this.db = this.openRequest.result
+      }
+    }
 
     // set the password after loading the data, otherwise the data will be
     // overwritten because the password setter checks for the existence of
@@ -167,13 +183,19 @@ export default class LncCredentialStore implements CredentialStore {
     return !!this.persisted.remoteKey || !!this.persisted.pairingPhrase
   }
 
+  init() {
+    this._load()
+  }
+
   /** Clears any persisted data in the store */
   clear(memoryOnly?: boolean) {
     if (!memoryOnly) {
-      const key = `${STORAGE_KEY}:${this.namespace}`
-      localStorage.removeItem(key)
+      const transaction = this.db.transaction(OBJECTSTORE_KEY, "readwrite")
+      const store = transaction.objectStore(OBJECTSTORE_KEY)
+      store.delete(this.namespace)
     }
     this.persisted = {
+      namespace: "",
       salt: "",
       cipher: "",
       serverHost: this.persisted.serverHost,
@@ -192,15 +214,15 @@ export default class LncCredentialStore implements CredentialStore {
   //
 
   /** Loads persisted data from localStorage */
+  // (ssb) replace to indexedDB
   private _load() {
-    // do nothing if localStorage is not available
-    if (typeof localStorage === "undefined") return
-
     try {
-      const key = `${STORAGE_KEY}:${this.namespace}`
-      const json = localStorage.getItem(key)
-      if (!json) return
-      this.persisted = JSON.parse(json)
+      const transaction = this.db.transaction(OBJECTSTORE_KEY, "readonly")
+      const store = transaction.objectStore(OBJECTSTORE_KEY)
+      const request = store.get(this.namespace)
+      request.onsuccess = (event) => {
+        this.persisted = request.result
+      }
     } catch (error) {
       const msg = (error as Error).message
       throw new Error(`Failed to load secure data: ${msg}`)
@@ -208,12 +230,11 @@ export default class LncCredentialStore implements CredentialStore {
   }
 
   /** Saves persisted data to localStorage */
+  // (ssb) replace to indexedDB
   private _save() {
-    // do nothing if localStorage is not available
-    if (typeof localStorage === "undefined") return
-
-    const key = `${STORAGE_KEY}:${this.namespace}`
-    localStorage.setItem(key, JSON.stringify(this.persisted))
+    const transaction = this.db.transaction(OBJECTSTORE_KEY, "readwrite")
+    const store = transaction.objectStore(OBJECTSTORE_KEY)
+    store.put(this.persisted)
   }
 
   /**

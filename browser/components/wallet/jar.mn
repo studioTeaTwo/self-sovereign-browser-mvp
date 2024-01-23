@@ -11,3 +11,4 @@ browser.jar:
   content/wallet/js/vendor.bundle.js (content/js/vendor.bundle.js)
   content/wallet/js/main.bundle.js (content/js/main.bundle.js)
   content/wallet/js/entry.js (content/js/entry.js)
+  content/wallet/wasm/lnc-v0.2.8-alpha.wasm  (content/wasm/lnc-v0.2.8-alpha.wasm)

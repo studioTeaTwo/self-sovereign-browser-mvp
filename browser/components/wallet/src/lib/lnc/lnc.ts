@@ -2,11 +2,14 @@ import { LitApi, LndApi, snakeKeysToCamel } from "@lightninglabs/lnc-core"
 import { createRpc } from "./api/createRpc"
 import { CredentialStore, LncConfig, WasmGlobal } from "./types/lnc"
 import LncCredentialStore from "./util/credentialStore"
-import { wasmLog as log } from './util/log';
+// import { wasmLog as log } from './util/log';
+
+const log = console
 
 /** The default values for the LncConfig options */
 const DEFAULT_CONFIG = {
-  wasmClientCode: "https://lightning.engineering/lnc-v0.2.8-alpha.wasm",
+  // wasmClientCode: "https://lightning.engineering/lnc-v0.2.8-alpha.wasm",
+  wasmClientCode: "./wasm/lnc-v0.2.8-alpha.wasm",
   namespace: "default",
   serverHost: "mailbox.terminal.lightning.today:443",
 } as Required<LncConfig>
@@ -39,11 +42,14 @@ export default class LNC {
         config.namespace,
         config.password
       )
-      // don't overwrite an existing serverHost if we're already paired
-      if (!this.credentials.isPaired)
-        this.credentials.serverHost = config.serverHost
-      if (config.pairingPhrase)
-        this.credentials.pairingPhrase = config.pairingPhrase
+      setTimeout(() => {
+        this.credentials.init()
+        // don't overwrite an existing serverHost if we're already paired
+        if (!this.credentials.isPaired)
+          this.credentials.serverHost = config.serverHost
+        if (config.pairingPhrase)
+          this.credentials.pairingPhrase = config.pairingPhrase
+      })
     }
 
     // TODO: pull Go off of the global state
@@ -114,7 +120,7 @@ export default class LNC {
       fetch(this._wasmClientCode),
       this.go.importObject
     )
-    log.info("downloaded WASM file")
+    log.info("downloaded WASM file", this.result)
   }
 
   /**
