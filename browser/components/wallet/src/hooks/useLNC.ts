@@ -15,9 +15,19 @@ const useLNC = () => {
   const connect = useCallback(
     async (pairingPhrase: string, password: string) => {
       lnc.credentials.pairingPhrase = pairingPhrase
-      await lnc.connect()
+      try {
+        await lnc.connect()
+      } catch (error) {
+        lnc.disconnect()
+        throw error
+      }
       // verify we can fetch data
-      await lnc.lnd.lightning.listChannels()
+      try {
+        await lnc.lnd.lightning.listChannels()
+      } catch (error) {
+        lnc.disconnect()
+        throw error
+      }
       // set the password after confirming the connection works
       lnc.credentials.password = password
     },
