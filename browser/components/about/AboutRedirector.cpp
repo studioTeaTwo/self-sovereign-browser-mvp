@@ -162,7 +162,7 @@ static const RedirEntry kRedirMap[] = {
          nsIAboutModule::IS_SECURE_CHROME_UI},
     {"wallet", "chrome://wallet/content/wallet.html",
     // TODO: (ssb) rearrange later
-     nsIAboutModule::ALLOW_SCRIPT},
+     nsIAboutModule::ALLOW_SCRIPT | nsIAboutModule::ENABLE_INDEXED_DB},
 };
 
 static nsAutoCString GetAboutModuleName(nsIURI* aURI) {

@@ -56,10 +56,12 @@ export default class LncCredentialStore implements CredentialStore {
         this.db = this.openRequest.result
         if (!this.db.objectStoreNames.contains(OBJECTSTORE_KEY)) {
           this.db.createObjectStore(OBJECTSTORE_KEY, { keyPath: "namespace" })
+          console.log(`indexedDB created: ${OBJECTSTORE_KEY}`)
         }
       }
       this.openRequest.onsuccess = () => {
         this.db = this.openRequest.result
+        console.log(`indexedDB opened: ${OBJECTSTORE_KEY}`)
       }
     }
 
@@ -118,7 +120,8 @@ export default class LncCredentialStore implements CredentialStore {
 
       // once the encrypted data is persisted, we can clear the plain text
       // credentials from memory
-      this.clear(true)
+      // TODO: (ssb) review the sequence flow later
+      // this.clear(true)
     }
   }
 
@@ -223,7 +226,11 @@ export default class LncCredentialStore implements CredentialStore {
       request.onsuccess = (event) => {
         if (request.result) {
           this.persisted = request.result
+          console.log(`indexedDB loaded: ${JSON.stringify(this.persisted)}`)
         }
+      }
+      request.onerror = (event) => {
+        console.error(`Failed to load secure data: ${JSON.stringify(event)}`)
       }
     } catch (error) {
       const msg = (error as Error).message
@@ -236,7 +243,15 @@ export default class LncCredentialStore implements CredentialStore {
   private _save() {
     const transaction = this.db.transaction(OBJECTSTORE_KEY, "readwrite")
     const store = transaction.objectStore(OBJECTSTORE_KEY)
-    store.put({ ...this.persisted, namespace: this.namespace })
+    const request = store.put({ ...this.persisted, namespace: this.namespace })
+    request.onsuccess = (event) => {
+      if (request.result) {
+        console.log(`indexedDB saved: ${JSON.stringify(this.persisted)}`)
+      }
+    }
+    request.onerror = (event) => {
+      console.error(`Failed to put secure data: ${JSON.stringify(event)}`)
+    }
   }
 
   /**

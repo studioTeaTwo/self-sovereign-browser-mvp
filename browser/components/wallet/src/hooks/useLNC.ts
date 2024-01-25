@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import { useCallback, useMemo } from "react"
 import LNC from "../lib/lnc"
 
 // This is a copy of https://github.com/lightninglabs/lnc-web/blob/main/demos/connect-demo/src/hooks/useLNC.ts
@@ -15,21 +15,27 @@ const useLNC = () => {
   const connect = useCallback(
     async (pairingPhrase: string, password: string) => {
       lnc.credentials.pairingPhrase = pairingPhrase
+
       try {
         await lnc.connect()
       } catch (error) {
+        // (ssb) now, disconnect doen't work
+        // ref: https://github.com/lightninglabs/lnc-web/issues/83
         lnc.disconnect()
         throw error
       }
+
+      // set the password after confirming the connection works
+      lnc.credentials.password = password
+
       // verify we can fetch data
       try {
-        await lnc.lnd.lightning.listChannels()
+        const info = await lnc.lnd.lightning.getInfo()
+        return info
       } catch (error) {
         lnc.disconnect()
         throw error
       }
-      // set the password after confirming the connection works
-      lnc.credentials.password = password
     },
     []
   )
@@ -40,7 +46,12 @@ const useLNC = () => {
     await lnc.connect()
   }, [])
 
-  return { lnc, connect, login }
+  const load = () => ({
+    password: lnc.credentials.password,
+    pairingPhrase: lnc.credentials.pairingPhrase,
+  })
+
+  return { lnc, connect, login, load }
 }
 
 export default useLNC
