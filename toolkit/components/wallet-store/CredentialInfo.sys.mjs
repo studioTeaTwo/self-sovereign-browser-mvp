@@ -5,17 +5,17 @@
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
+  WalletHelper: "resource://gre/modules/WalletHelper.sys.mjs",
 });
 
-export function nsLoginInfo() {}
+export function nsCredentialInfo() {}
 
-nsLoginInfo.prototype = {
+nsCredentialInfo.prototype = {
   classID: Components.ID("{0f2f347c-1e4f-40cc-8efd-792dea70a85e}"),
-  QueryInterface: ChromeUtils.generateQI(["nsILoginInfo", "nsILoginMetaInfo"]),
+  QueryInterface: ChromeUtils.generateQI(["nsICredentialInfo", "nsICredentialMetaInfo"]),
 
   //
-  // nsILoginInfo interfaces...
+  // nsICredentialInfo interfaces...
   //
 
   origin: null,
@@ -80,21 +80,21 @@ nsLoginInfo.prototype = {
     this.passwordField = aPasswordField || "";
   },
 
-  matches(aLogin, ignorePassword) {
-    return lazy.LoginHelper.doLoginsMatch(this, aLogin, {
+  matches(aCredential, ignorePassword) {
+    return lazy.WalletHelper.doCredentialsMatch(this, aCredential, {
       ignorePassword,
     });
   },
 
-  equals(aLogin) {
+  equals(aCredential) {
     if (
-      this.origin != aLogin.origin ||
-      this.formActionOrigin != aLogin.formActionOrigin ||
-      this.httpRealm != aLogin.httpRealm ||
-      this.username != aLogin.username ||
-      this.password != aLogin.password ||
-      this.usernameField != aLogin.usernameField ||
-      this.passwordField != aLogin.passwordField
+      this.origin != aCredential.origin ||
+      this.formActionOrigin != aCredential.formActionOrigin ||
+      this.httpRealm != aCredential.httpRealm ||
+      this.username != aCredential.username ||
+      this.password != aCredential.password ||
+      this.usernameField != aCredential.usernameField ||
+      this.passwordField != aCredential.passwordField
     ) {
       return false;
     }
@@ -104,7 +104,7 @@ nsLoginInfo.prototype = {
 
   clone() {
     let clone = Cc["@mozilla.org/login-manager/loginInfo;1"].createInstance(
-      Ci.nsILoginInfo
+      Ci.nsICredentialInfo
     );
     clone.init(
       this.origin,
@@ -116,8 +116,8 @@ nsLoginInfo.prototype = {
       this.passwordField
     );
 
-    // Copy nsILoginMetaInfo props
-    clone.QueryInterface(Ci.nsILoginMetaInfo);
+    // Copy nsICredentialMetaInfo props
+    clone.QueryInterface(Ci.nsICredentialMetaInfo);
     clone.guid = this.guid;
     clone.timeCreated = this.timeCreated;
     clone.timeLastUsed = this.timeLastUsed;
@@ -133,7 +133,7 @@ nsLoginInfo.prototype = {
   },
 
   //
-  // nsILoginMetaInfo interfaces...
+  // nsICredentialMetaInfo interfaces...
   //
 
   guid: null,
@@ -141,4 +141,4 @@ nsLoginInfo.prototype = {
   timeLastUsed: null,
   timePasswordChanged: null,
   timesUsed: null,
-}; // end of nsLoginInfo implementation
+}; // end of nsCredentialInfo implementation

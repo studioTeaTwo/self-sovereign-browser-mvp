@@ -19,12 +19,12 @@ const SUPPORTED_KEYS = REQUIRED_KEYS.concat(OPTIONAL_KEYS);
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
+  WalletHelper: "resource://gre/modules/WalletHelper.sys.mjs",
   RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "log", () =>
-  lazy.LoginHelper.createLogger("LoginRecipes")
+  lazy.WalletHelper.createLogger("WalletRecipes")
 );
 
 /**
@@ -37,17 +37,17 @@ ChromeUtils.defineLazyGetter(lazy, "log", () =>
  *                                          If it's null, nothing is loaded.
  *
  */
-export function LoginRecipesParent(aOptions = { defaults: null }) {
+export function WalletRecipesParent(aOptions = { defaults: null }) {
   if (Services.appinfo.processType != Ci.nsIXULRuntime.PROCESS_TYPE_DEFAULT) {
     throw new Error(
-      "LoginRecipesParent should only be used from the main process"
+      "WalletRecipesParent should only be used from the main process"
     );
   }
   this._defaults = aOptions.defaults;
   this.reset();
 }
 
-LoginRecipesParent.prototype = {
+WalletRecipesParent.prototype = {
   /**
    * Promise resolved with an instance of itself when the module is ready.
    *
@@ -110,10 +110,10 @@ LoginRecipesParent.prototype = {
        * With Remote Settings, the dump is used to initialize the local database without network,
        * and the list of password recipes can be refreshed without restarting and without software update.
        */
-      if (lazy.LoginHelper.remoteRecipesEnabled) {
+      if (lazy.WalletHelper.remoteRecipesEnabled) {
         if (!this._rsClient) {
           this._rsClient = lazy.RemoteSettings(
-            lazy.LoginHelper.remoteRecipesCollection
+            lazy.WalletHelper.remoteRecipesCollection
           );
           // Set up sync observer to update local recipes from Remote Settings recipes
           this._rsClient.on("sync", event => this.onRemoteSettingsSync(event));
@@ -232,7 +232,7 @@ LoginRecipesParent.prototype = {
   },
 };
 
-export const LoginRecipesContent = {
+export const WalletRecipesContent = {
   _recipeCache: new WeakMap(),
 
   _clearRecipeCache() {
@@ -320,10 +320,10 @@ export const LoginRecipesContent = {
 
   /**
    * Given a set of recipes that apply to the host, choose the one most applicable for
-   * overriding login fields in the form.
+   * overriding wallet fields in the form.
    *
    * @param {Set} aRecipes The set of recipes to consider for the form
-   * @param {FormLike} aForm The form where login fields exist.
+   * @param {FormLike} aForm The form where wallet fields exist.
    * @return {Object} The recipe that is most applicable for the form.
    */
   getFieldOverrides(aRecipes, aForm) {
@@ -354,16 +354,16 @@ export const LoginRecipesContent = {
 
   /**
    * @param {HTMLElement} aParent the element to query for the selector from.
-   * @param {CSSSelector} aSelector the CSS selector to query for the login field.
+   * @param {CSSSelector} aSelector the CSS selector to query for the wallet field.
    * @return {HTMLElement|null}
    */
-  queryLoginField(aParent, aSelector) {
+  queryWalletField(aParent, aSelector) {
     if (!aSelector) {
       return null;
     }
     let field = aParent.ownerDocument.querySelector(aSelector);
     if (!field) {
-      lazy.log.debug(`Login field selector wasn't matched: ${aSelector}.`);
+      lazy.log.debug(`Wallet field selector wasn't matched: ${aSelector}.`);
       return null;
     }
     // ownerGlobal doesn't exist in content privileged windows.
@@ -372,7 +372,7 @@ export const LoginRecipesContent = {
       !aParent.ownerDocument.defaultView.HTMLInputElement.isInstance(field)
     ) {
       lazy.log.warn(
-        `Login field with selector ${aSelector} isn't an <input> so ignoring it.`
+        `Wallet field with selector ${aSelector} isn't an <input> so ignoring it.`
       );
       return null;
     }

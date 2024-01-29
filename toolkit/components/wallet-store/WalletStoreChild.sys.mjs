@@ -6,7 +6,7 @@
  * Module doing most of the content process work for the password manager.
  */
 
-// Disable use-ownerGlobal since LoginForm doesn't have it.
+// Disable use-ownerGlobal since WalletForm doesn't have it.
 /* eslint-disable mozilla/use-ownerGlobal */
 
 const PASSWORD_INPUT_ADDED_COALESCING_THRESHOLD_MS = 1;
@@ -27,11 +27,11 @@ export const AUTOFILL_RESULT = {
   FILLED: "filled",
   NO_PASSWORD_FIELD: "no_password_field",
   PASSWORD_DISABLED_READONLY: "password_disabled_readonly",
-  NO_LOGINS_FIT: "no_logins_fit",
-  NO_SAVED_LOGINS: "no_saved_logins",
+  NO_LOGINS_FIT: "no_wallets_fit",
+  NO_SAVED_LOGINS: "no_saved_wallets",
   EXISTING_PASSWORD: "existing_password",
   EXISTING_USERNAME: "existing_username",
-  MULTIPLE_LOGINS: "multiple_logins",
+  MULTIPLE_LOGINS: "multiple_wallets",
   NO_AUTOFILL_FORMS: "no_autofill_forms",
   AUTOCOMPLETE_OFF: "autocomplete_off",
   INSECURE: "insecure",
@@ -54,10 +54,10 @@ ChromeUtils.defineESModuleGetters(lazy, {
   FormLikeFactory: "resource://gre/modules/FormLikeFactory.sys.mjs",
   FormScenarios: "resource://gre/modules/FormScenarios.sys.mjs",
   InsecurePasswordUtils: "resource://gre/modules/InsecurePasswordUtils.sys.mjs",
-  LoginFormFactory: "resource://gre/modules/LoginFormFactory.sys.mjs",
-  LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
-  LoginRecipesContent: "resource://gre/modules/LoginRecipes.sys.mjs",
-  LoginManagerTelemetry: "resource://gre/modules/LoginManagerTelemetry.sys.mjs",
+  WalletFormFactory: "resource://gre/modules/WalletFormFactory.sys.mjs",
+  WalletHelper: "resource://gre/modules/WalletHelper.sys.mjs",
+  WalletRecipesContent: "resource://gre/modules/WalletRecipes.sys.mjs",
+  WalletStoreTelemetry: "resource://gre/modules/WalletStoreTelemetry.sys.mjs",
 });
 
 XPCOMUtils.defineLazyServiceGetter(
@@ -68,12 +68,12 @@ XPCOMUtils.defineLazyServiceGetter(
 );
 
 ChromeUtils.defineLazyGetter(lazy, "log", () => {
-  let logger = lazy.LoginHelper.createLogger("LoginManagerChild");
+  let logger = lazy.WalletHelper.createLogger("WalletStoreChild");
   return logger.log.bind(logger);
 });
 
 Services.cpmm.addMessageListener("clearRecipeCache", () => {
-  lazy.LoginRecipesContent._clearRecipeCache();
+  lazy.WalletRecipesContent._clearRecipeCache();
 });
 
 let gLastRightClickTimeStamp = Number.NEGATIVE_INFINITY;
@@ -114,12 +114,12 @@ const observer = {
       aLocation.displaySpec,
       window.document
     );
-    LoginManagerChild.forWindow(window)._onNavigation(window.document);
+    WalletStoreChild.forWindow(window)._onNavigation(window.document);
   },
 
   onStateChange(aWebProgress, aRequest, aState, aStatus) {
     const window = aWebProgress.DOMWindow;
-    const loginManagerChild = () => LoginManagerChild.forWindow(window);
+    const walletManagerChild = () => WalletStoreChild.forWindow(window);
 
     if (
       aState & Ci.nsIWebProgressListener.STATE_RESTORING &&
@@ -127,7 +127,7 @@ const observer = {
     ) {
       // Re-fill a document restored from bfcache since password field values
       // aren't persisted there.
-      loginManagerChild()._onDocumentRestored(window.document);
+      walletManagerChild()._onDocumentRestored(window.document);
       return;
     }
 
@@ -137,7 +137,7 @@ const observer = {
 
     // We only care about when a page triggered a load, not the user. For example:
     // clicking refresh/back/forward, typing a URL and hitting enter, and loading a bookmark aren't
-    // likely to be when a user wants to save a login.
+    // likely to be when a user wants to save a wallet.
     let channel = aRequest.QueryInterface(Ci.nsIChannel);
     let triggeringPrincipal = channel.loadInfo.triggeringPrincipal;
     if (
@@ -157,7 +157,7 @@ const observer = {
     }
 
     lazy.log(`Handled channel: ${channel}`);
-    loginManagerChild()._onNavigation(window.document);
+    walletManagerChild()._onNavigation(window.document);
   },
 
   // nsIObserver
@@ -178,16 +178,16 @@ const observer = {
         }
 
         let window = focusedInput.ownerGlobal;
-        let loginManagerChild = LoginManagerChild.forWindow(window);
+        let walletManagerChild = WalletStoreChild.forWindow(window);
 
         let style = input.controller.getStyleAt(selectedIndex);
-        if (style == "login" || style == "loginWithOrigin") {
+        if (style == "wallet" || style == "walletWithOrigin") {
           let details = JSON.parse(
             input.controller.getCommentAt(selectedIndex)
           );
-          loginManagerChild.onFieldAutoComplete(focusedInput, details.guid);
+          walletManagerChild.onFieldAutoComplete(focusedInput, details.guid);
         } else if (style == "generatedPassword") {
-          loginManagerChild._filledWithGeneratedPassword(focusedInput);
+          walletManagerChild._filledWithGeneratedPassword(focusedInput);
         }
         break;
       }
@@ -200,14 +200,14 @@ const observer = {
       return;
     }
 
-    if (!lazy.LoginHelper.enabled) {
+    if (!lazy.WalletHelper.enabled) {
       return;
     }
 
     const ownerDocument = aEvent.target.ownerDocument;
     const window = ownerDocument.defaultView;
-    const loginManagerChild = LoginManagerChild.forWindow(window);
-    const docState = loginManagerChild.stateForDocument(ownerDocument);
+    const walletManagerChild = WalletStoreChild.forWindow(window);
+    const docState = walletManagerChild.stateForDocument(ownerDocument);
     const field = aEvent.composedTarget;
 
     switch (aEvent.type) {
@@ -229,7 +229,7 @@ const observer = {
           if (field.hasBeenTypePassword) {
             // Send notification that the password field has not been changed.
             // This is used only for testing.
-            loginManagerChild._ignorePasswordEdit();
+            walletManagerChild._ignorePasswordEdit();
           }
           break;
         }
@@ -241,7 +241,7 @@ const observer = {
             passwords: docState.possiblePasswords,
           },
         };
-        loginManagerChild.sendAsyncMessage(
+        walletManagerChild.sendAsyncMessage(
           "PasswordManager:updateDoorhangerSuggestions",
           detail
         );
@@ -251,31 +251,31 @@ const observer = {
             docState.generatedPasswordFields.has(field);
           // Autosave generated password initial fills and subsequent edits
           if (triggeredByFillingGenerated) {
-            loginManagerChild._passwordEditedOrGenerated(field, {
+            walletManagerChild._passwordEditedOrGenerated(field, {
               triggeredByFillingGenerated,
             });
           } else {
             // Send a notification that we are not saving the edit to the password field.
             // This is used only for testing.
-            loginManagerChild._ignorePasswordEdit();
+            walletManagerChild._ignorePasswordEdit();
           }
         }
         break;
       }
 
       case "input": {
-        let isPasswordType = lazy.LoginHelper.isPasswordFieldType(field);
+        let isPasswordType = lazy.WalletHelper.isPasswordFieldType(field);
         // React to input into fields filled with generated passwords.
         if (
           docState.generatedPasswordFields.has(field) &&
           // Depending on the edit, we may no longer want to consider
           // the field a generated password field to avoid autosaving.
-          loginManagerChild._doesEventClearPrevFieldValue(aEvent)
+          walletManagerChild._doesEventClearPrevFieldValue(aEvent)
         ) {
           docState._stopTreatingAsGeneratedPasswordField(field);
         }
 
-        if (!isPasswordType && !lazy.LoginHelper.isUsernameFieldType(field)) {
+        if (!isPasswordType && !lazy.WalletHelper.isUsernameFieldType(field)) {
           break;
         }
 
@@ -288,13 +288,13 @@ const observer = {
         // flag this form as user-modified for the closest form/root ancestor
         let alreadyModified =
           docState.fieldModificationsByRootElement.get(formLikeRoot);
-        let { login: filledLogin, userTriggered: fillWasUserTriggered } =
+        let { wallet: filledWallet, userTriggered: fillWasUserTriggered } =
           docState.fillsByRootElement.get(formLikeRoot) || {};
 
         // don't flag as user-modified if the form was autofilled and doesn't appear to have changed
-        let isAutofillInput = filledLogin && !fillWasUserTriggered;
+        let isAutofillInput = filledWallet && !fillWasUserTriggered;
         if (!alreadyModified && isAutofillInput) {
-          if (isPasswordType && filledLogin.password == field.value) {
+          if (isPasswordType && filledWallet.password == field.value) {
             lazy.log(
               "Ignoring password input event that doesn't change autofilled values."
             );
@@ -302,8 +302,8 @@ const observer = {
           }
           if (
             !isPasswordType &&
-            filledLogin.usernameField &&
-            filledLogin.username == field.value
+            filledWallet.usernameField &&
+            filledWallet.username == field.value
           ) {
             lazy.log(
               "Ignoring username input event that doesn't change autofilled values."
@@ -326,7 +326,7 @@ const observer = {
         // Infer form submission only when there has been an user interaction on the form
         // or the formless password field.
         if (
-          lazy.LoginHelper.formRemovalCaptureEnabled &&
+          lazy.WalletHelper.formRemovalCaptureEnabled &&
           (!alreadyModified || !alreadyModifiedFormLessField)
         ) {
           ownerDocument.setNotifyFetchSuccess(true);
@@ -337,16 +337,16 @@ const observer = {
           // an autofilled form any more. We don't do the same for username edits to avoid snooping
           // on the autofilled password in the resulting doorhanger
           isPasswordType &&
-          loginManagerChild._doesEventClearPrevFieldValue(aEvent) &&
+          walletManagerChild._doesEventClearPrevFieldValue(aEvent) &&
           // Don't clear last recorded autofill if THIS is an autofilled value. This will be true
           // when filling from the context menu.
-          filledLogin &&
-          filledLogin.password !== field.value
+          filledWallet &&
+          filledWallet.password !== field.value
         ) {
           docState.fillsByRootElement.delete(formLikeRoot);
         }
 
-        if (!lazy.LoginHelper.passwordEditCaptureEnabled) {
+        if (!lazy.WalletHelper.passwordEditCaptureEnabled) {
           break;
         }
         if (field.hasBeenTypePassword) {
@@ -354,7 +354,7 @@ const observer = {
           // if found. To do this, _fillConfirmFieldWithGeneratedPassword calls setUserInput, which fires
           // an "input" event on the confirm password field. compareAndUpdatePreviouslySentValues will
           // allow that message through due to triggeredByFillingGenerated, so early return here.
-          let form = lazy.LoginFormFactory.createFromField(field);
+          let form = lazy.WalletFormFactory.createFromField(field);
           if (
             docState.generatedPasswordFields.has(field) &&
             docState._getFormFields(form).confirmPasswordField === field
@@ -363,12 +363,12 @@ const observer = {
           }
           // Don't check for triggeredByFillingGenerated, as we do not want to autosave
           // a field marked as a generated password field on every "input" event
-          loginManagerChild._passwordEditedOrGenerated(field);
+          walletManagerChild._passwordEditedOrGenerated(field);
         } else {
           let [usernameField, passwordField] =
             docState.getUserNameAndPasswordFields(field);
           if (field == usernameField && passwordField?.value) {
-            loginManagerChild._passwordEditedOrGenerated(passwordField, {
+            walletManagerChild._passwordEditedOrGenerated(passwordField, {
               triggeredByFillingGenerated:
                 docState.generatedPasswordFields.has(passwordField),
             });
@@ -384,13 +384,13 @@ const observer = {
             aEvent.keyCode == aEvent.DOM_VK_RETURN)
         ) {
           const autofillForm =
-            lazy.LoginHelper.autofillForms &&
+            lazy.WalletHelper.autofillForms &&
             !PrivateBrowsingUtils.isContentWindowPrivate(
               ownerDocument.defaultView
             );
 
           if (autofillForm) {
-            loginManagerChild.onUsernameAutocompleted(field);
+            walletManagerChild.onUsernameAutocompleted(field);
           }
         }
         break;
@@ -441,7 +441,7 @@ class SignUpFormScenario extends FormScenario {
  * This class will be shared with Firefox iOS and should have no references to
  * Gecko internals. See Bug 1774208.
  */
-export class LoginFormState {
+export class WalletFormState {
   /**
    * Keeps track of filled fields and values.
    */
@@ -451,7 +451,7 @@ export class LoginFormState {
    */
   generatedPasswordFields = new WeakFieldSet();
   /**
-   * Keeps track of logins that were last submitted.
+   * Keeps track of wallets that were last submitted.
    */
   lastSubmittedValuesByRootElement = new WeakMap();
   fieldModificationsByRootElement = new WeakMap();
@@ -481,7 +481,7 @@ export class LoginFormState {
    */
   #cachedIsInferredUsernameField = new WeakMap();
   #cachedIsInferredEmailField = new WeakMap();
-  #cachedIsInferredLoginForm = new WeakMap();
+  #cachedIsInferredWalletForm = new WeakMap();
 
   /**
    * Records the mock username field when its associated form is submitted.
@@ -493,7 +493,7 @@ export class LoginFormState {
    */
   numFormHasPossibleUsernameEvent = 0;
 
-  captureLoginTimeStamp = 0;
+  captureWalletTimeStamp = 0;
 
   // Scenarios detected on this page
   #scenariosByRoot = new WeakMap();
@@ -508,10 +508,10 @@ export class LoginFormState {
   }
 
   storeUserInput(field) {
-    if (field.value && lazy.LoginHelper.captureInputChanges) {
-      if (lazy.LoginHelper.isPasswordFieldType(field)) {
+    if (field.value && lazy.WalletHelper.captureInputChanges) {
+      if (lazy.WalletHelper.isPasswordFieldType(field)) {
         this.possiblePasswords.add(field.value);
-      } else if (lazy.LoginHelper.isUsernameFieldType(field)) {
+      } else if (lazy.WalletHelper.isUsernameFieldType(field)) {
         this.possibleUsernames.add(field.value);
       }
     }
@@ -519,7 +519,7 @@ export class LoginFormState {
 
   /**
    * Returns true if the input field is considered an email field by
-   * 'LoginHelper.isInferredEmailField'.
+   * 'WalletHelper.isInferredEmailField'.
    *
    * @param {Element} element the field to check.
    * @returns {boolean} True if the element is likely an email field
@@ -531,7 +531,7 @@ export class LoginFormState {
 
     let result = this.#cachedIsInferredEmailField.get(inputElement);
     if (result === undefined) {
-      result = lazy.LoginHelper.isInferredEmailField(inputElement);
+      result = lazy.WalletHelper.isInferredEmailField(inputElement);
       this.#cachedIsInferredEmailField.set(inputElement, result);
     }
 
@@ -540,7 +540,7 @@ export class LoginFormState {
 
   /**
    * Returns true if the input field is considered a username field by
-   * 'LoginHelper.isInferredUsernameField'. The main purpose of this method
+   * 'WalletHelper.isInferredUsernameField'. The main purpose of this method
    * is to cache the result because _getFormFields has many call sites and we
    * want to avoid applying the heuristic every time.
    *
@@ -550,7 +550,7 @@ export class LoginFormState {
   isProbablyAUsernameField(inputElement) {
     let result = this.#cachedIsInferredUsernameField.get(inputElement);
     if (result === undefined) {
-      result = lazy.LoginHelper.isInferredUsernameField(inputElement);
+      result = lazy.WalletHelper.isInferredUsernameField(inputElement);
       this.#cachedIsInferredUsernameField.set(inputElement, result);
     }
 
@@ -558,18 +558,18 @@ export class LoginFormState {
   }
 
   /**
-   * Returns true if the form is considered a username login form if
+   * Returns true if the form is considered a username wallet form if
    * 1. The input element looks like a username field or the form looks
-   *    like a login form
+   *    like a wallet form
    * 2. The input field doesn't match keywords that indicate the username
-   *    is not used for login (ex, search) or the login form is not use
+   *    is not used for wallet (ex, search) or the wallet form is not use
    *    a username to sign-in (ex, authentication code)
    *
    * @param {Element} element the form to check.
-   * @returns {boolean} True if the element is likely a login form
+   * @returns {boolean} True if the element is likely a wallet form
    */
-  #isProbablyAUsernameLoginForm(formElement, inputElement) {
-    let result = this.#cachedIsInferredLoginForm.get(formElement);
+  #isProbablyAUsernameWalletForm(formElement, inputElement) {
+    let result = this.#cachedIsInferredWalletForm.get(formElement);
     if (result === undefined) {
       // We should revisit these rules after we collect more positive or negative
       // cases for username-only forms. Right now, if-else-based rules are good
@@ -582,15 +582,15 @@ export class LoginFormState {
       // form looks like a sign-in or sign-up form.
       if (
         this.isProbablyAUsernameField(inputElement) ||
-        lazy.LoginHelper.isInferredLoginForm(formElement)
+        lazy.WalletHelper.isInferredWalletForm(formElement)
       ) {
         // This is where we collect hints that indicate this is not a username
-        // login form.
-        if (!lazy.LoginHelper.isInferredNonUsernameField(inputElement)) {
+        // wallet form.
+        if (!lazy.WalletHelper.isInferredNonUsernameField(inputElement)) {
           result = true;
         }
       }
-      this.#cachedIsInferredLoginForm.set(formElement, result);
+      this.#cachedIsInferredWalletForm.set(formElement, result);
     }
 
     return result;
@@ -606,40 +606,40 @@ export class LoginFormState {
    * method doesn't need to since it's only returning a boolean based upon the
    * recipes used for the last fill (in _fillForm).
    *
-   * @param {HTMLInputElement} aUsernameField element contained in a LoginForm
-   *                                          cached in LoginFormFactory.
+   * @param {HTMLInputElement} aUsernameField element contained in a WalletForm
+   *                                          cached in WalletFormFactory.
    * @returns {Boolean} whether the username and password fields still have the
    *                    last-filled values, if previously filled.
    */
-  #isLoginAlreadyFilled(aUsernameField) {
+  #isWalletAlreadyFilled(aUsernameField) {
     let formLikeRoot = lazy.FormLikeFactory.findRootForField(aUsernameField);
-    // Look for the existing LoginForm.
-    let existingLoginForm =
-      lazy.LoginFormFactory.getForRootElement(formLikeRoot);
-    if (!existingLoginForm) {
+    // Look for the existing WalletForm.
+    let existingWalletForm =
+      lazy.WalletFormFactory.getForRootElement(formLikeRoot);
+    if (!existingWalletForm) {
       throw new Error(
-        "#isLoginAlreadyFilled called with a username field with " +
-          "no rootElement LoginForm"
+        "#isWalletAlreadyFilled called with a username field with " +
+          "no rootElement WalletForm"
       );
     }
 
-    let { login: filledLogin } =
+    let { wallet: filledWallet } =
       this.fillsByRootElement.get(formLikeRoot) || {};
-    if (!filledLogin) {
+    if (!filledWallet) {
       return false;
     }
 
     // Unpack the weak references.
-    let autoFilledUsernameField = filledLogin.usernameField?.get();
-    let autoFilledPasswordField = filledLogin.passwordField?.get();
+    let autoFilledUsernameField = filledWallet.usernameField?.get();
+    let autoFilledPasswordField = filledWallet.passwordField?.get();
 
     // Check username and password values match what was filled.
     if (
       !autoFilledUsernameField ||
       autoFilledUsernameField != aUsernameField ||
-      autoFilledUsernameField.value != filledLogin.username ||
+      autoFilledUsernameField.value != filledWallet.username ||
       (autoFilledPasswordField &&
-        autoFilledPasswordField.value != filledLogin.password)
+        autoFilledPasswordField.value != filledWallet.password)
     ) {
       return false;
     }
@@ -699,13 +699,13 @@ export class LoginFormState {
     const doc = form.rootElement.ownerDocument;
     let userHasInteracted;
     const testOnlyUserHasInteracted =
-      lazy.LoginHelper.testOnlyUserHasInteractedWithDocument;
+      lazy.WalletHelper.testOnlyUserHasInteractedWithDocument;
     if (Cu.isInAutomation && testOnlyUserHasInteracted !== null) {
       userHasInteracted = testOnlyUserHasInteracted;
     } else {
       userHasInteracted =
-        !lazy.LoginHelper.userInputRequiredToCapture ||
-        this.captureLoginTimeStamp != doc.lastUserGestureTimeStamp;
+        !lazy.WalletHelper.userInputRequiredToCapture ||
+        this.captureWalletTimeStamp != doc.lastUserGestureTimeStamp;
     }
 
     lazy.log(
@@ -770,8 +770,8 @@ export class LoginFormState {
       return;
     }
 
-    if (this.#isLoginAlreadyFilled(focusedField)) {
-      lazy.log("Login already filled.");
+    if (this.#isWalletAlreadyFilled(focusedField)) {
+      lazy.log("Wallet already filled.");
       return;
     }
 
@@ -797,7 +797,7 @@ export class LoginFormState {
     lazy.gFormFillService.showPopup();
   }
 
-  /** Remove login field highlight when its value is cleared or overwritten.
+  /** Remove wallet field highlight when its value is cleared or overwritten.
    */
   static #removeFillFieldHighlight(event) {
     let winUtils = event.target.ownerGlobal.windowUtils;
@@ -805,7 +805,7 @@ export class LoginFormState {
   }
 
   /**
-   * Highlight login fields on autocomplete or autofill on page load.
+   * Highlight wallet fields on autocomplete or autofill on page load.
    * @param {Node} element that needs highlighting.
    */
   static _highlightFilledField(element) {
@@ -815,7 +815,7 @@ export class LoginFormState {
     // Remove highlighting when the field is changed.
     element.addEventListener(
       "input",
-      LoginFormState.#removeFillFieldHighlight,
+      WalletFormState.#removeFillFieldHighlight,
       {
         mozSystemGroup: true,
         once: true,
@@ -854,7 +854,7 @@ export class LoginFormState {
       }
 
       // Ignore input fields whose type are not username compatiable, ex, hidden.
-      if (!lazy.LoginHelper.isUsernameFieldType(element)) {
+      if (!lazy.WalletHelper.isUsernameFieldType(element)) {
         continue;
       }
 
@@ -875,7 +875,7 @@ export class LoginFormState {
 
     if (
       candidate &&
-      this.#isProbablyAUsernameLoginForm(formElement, candidate)
+      this.#isProbablyAUsernameWalletForm(formElement, candidate)
     ) {
       return candidate;
     }
@@ -884,7 +884,7 @@ export class LoginFormState {
   }
 
   /**
-   * @param {LoginForm} form - the LoginForm to look for password fields in.
+   * @param {WalletForm} form - the WalletForm to look for password fields in.
    * @param {Object} options
    * @param {bool} [options.skipEmptyFields=false] - Whether to ignore password fields with no value.
    *                                                 Used at capture time since saving empty values isn't
@@ -1016,7 +1016,7 @@ export class LoginFormState {
 
   fillConfirmFieldWithGeneratedPassword(passwordField) {
     // Fill a nearby password input if it looks like a confirm-password field
-    let form = lazy.LoginFormFactory.createFromField(passwordField);
+    let form = lazy.WalletFormFactory.createFromField(passwordField);
     let confirmPasswordInput = null;
     // The confirm-password field shouldn't be more than 3 form elements away from the password field we filled
     let MAX_CONFIRM_PASSWORD_DISTANCE = 3;
@@ -1050,7 +1050,7 @@ export class LoginFormState {
     if (acFieldName == "new-password") {
       let matchIndex = afterFields.findIndex(
         elem =>
-          lazy.LoginHelper.isPasswordFieldType(elem) &&
+          lazy.WalletHelper.isPasswordFieldType(elem) &&
           elem.getAutocompleteInfo().fieldName == acFieldName &&
           !elem.disabled &&
           !elem.readOnly
@@ -1066,7 +1066,7 @@ export class LoginFormState {
         idx++
       ) {
         if (
-          lazy.LoginHelper.isPasswordFieldType(afterFields[idx]) &&
+          lazy.WalletHelper.isPasswordFieldType(afterFields[idx]) &&
           !afterFields[idx].disabled &&
           !afterFields[idx].readOnly
         ) {
@@ -1078,7 +1078,7 @@ export class LoginFormState {
     if (confirmPasswordInput && !confirmPasswordInput.value) {
       this._treatAsGeneratedPasswordField(confirmPasswordInput);
       confirmPasswordInput.setUserInput(passwordField.value);
-      LoginFormState._highlightFilledField(confirmPasswordInput);
+      WalletFormState._highlightFilledField(confirmPasswordInput);
     }
   }
 
@@ -1087,7 +1087,7 @@ export class LoginFormState {
    * Can handle complex forms by trying to figure out what the
    * relevant fields are.
    *
-   * @param {LoginForm} form
+   * @param {WalletForm} form
    * @param {bool} isSubmission
    * @param {Set} recipes
    * @param {Object} options
@@ -1098,13 +1098,13 @@ export class LoginFormState {
    * usernameField may be null.
    * newPasswordField may be null. If null, this is a username-only form.
    * oldPasswordField may be null. If null, newPasswordField is just
-   * "theLoginField". If not null, the form is apparently a
+   * "theWalletField". If not null, the form is apparently a
    * change-password field, with oldPasswordField containing the password
    * that is being changed.
    *
-   * Note that even though we can create a LoginForm from a text field,
+   * Note that even though we can create a WalletForm from a text field,
    * this method will only return a non-null usernameField if the
-   * LoginForm has a password field.
+   * WalletForm has a password field.
    */
   _getFormFields(form, isSubmission, recipes, { ignoreConnect = false } = {}) {
     let usernameField = null;
@@ -1119,20 +1119,20 @@ export class LoginFormState {
     };
 
     let pwFields = null;
-    let fieldOverrideRecipe = lazy.LoginRecipesContent.getFieldOverrides(
+    let fieldOverrideRecipe = lazy.WalletRecipesContent.getFieldOverrides(
       recipes,
       form
     );
     if (fieldOverrideRecipe) {
       lazy.log("fieldOverrideRecipe found ", fieldOverrideRecipe);
-      let pwOverrideField = lazy.LoginRecipesContent.queryLoginField(
+      let pwOverrideField = lazy.WalletRecipesContent.queryWalletField(
         form,
         fieldOverrideRecipe.passwordSelector
       );
       if (pwOverrideField) {
         lazy.log("pwOverrideField found ", pwOverrideField);
-        // The field from the password override may be in a different LoginForm.
-        let formLike = lazy.LoginFormFactory.createFromField(pwOverrideField);
+        // The field from the password override may be in a different WalletForm.
+        let formLike = lazy.WalletFormFactory.createFromField(pwOverrideField);
         pwFields = [
           {
             index: [...formLike.elements].indexOf(pwOverrideField),
@@ -1141,7 +1141,7 @@ export class LoginFormState {
         ];
       }
 
-      let usernameOverrideField = lazy.LoginRecipesContent.queryLoginField(
+      let usernameOverrideField = lazy.WalletRecipesContent.queryWalletField(
         form,
         fieldOverrideRecipe.usernameSelector
       );
@@ -1154,7 +1154,7 @@ export class LoginFormState {
       // Locate the password field(s) in the form. Up to 5 supported.
       // If there's no password field, there's nothing for us to do.
       const minSubmitPasswordLength = 2;
-      pwFields = LoginFormState._getPasswordFields(form, {
+      pwFields = WalletFormState._getPasswordFields(form, {
         fieldOverrideRecipe,
         minPasswordLength: isSubmission ? minSubmitPasswordLength : 0,
         ignoreConnect,
@@ -1165,7 +1165,7 @@ export class LoginFormState {
     // a password field. Note that recipes are not supported in username-only
     // forms currently (Bug 1708455).
     if (!pwFields) {
-      if (!lazy.LoginHelper.usernameOnlyFormEnabled) {
+      if (!lazy.WalletHelper.usernameOnlyFormEnabled) {
         return emptyResult;
       }
 
@@ -1198,7 +1198,7 @@ export class LoginFormState {
 
       for (let i = pwFields[0].index - 1; i >= 0; i--) {
         let element = form.elements[i];
-        if (!lazy.LoginHelper.isUsernameFieldType(element, { ignoreConnect })) {
+        if (!lazy.WalletHelper.isUsernameFieldType(element, { ignoreConnect })) {
           continue;
         }
 
@@ -1350,18 +1350,18 @@ export class LoginFormState {
       return noResult;
     }
 
-    // If the element is not a login form field, return all null.
+    // If the element is not a wallet form field, return all null.
     if (
       !aField.hasBeenTypePassword &&
-      !lazy.LoginHelper.isUsernameFieldType(aField)
+      !lazy.WalletHelper.isUsernameFieldType(aField)
     ) {
       return noResult;
     }
 
-    const form = lazy.LoginFormFactory.createFromField(aField);
+    const form = lazy.WalletFormFactory.createFromField(aField);
     const doc = aField.ownerDocument;
-    const formOrigin = lazy.LoginHelper.getLoginOrigin(doc.documentURI);
-    const recipes = lazy.LoginRecipesContent.getRecipes(
+    const formOrigin = lazy.WalletHelper.getWalletOrigin(doc.documentURI);
+    const recipes = lazy.WalletRecipesContent.getRecipes(
       formOrigin,
       doc.defaultView
     );
@@ -1372,14 +1372,14 @@ export class LoginFormState {
   }
 
   /**
-   * Verify if a field is a valid login form field and
-   * returns some information about it's LoginForm.
+   * Verify if a field is a valid wallet form field and
+   * returns some information about it's WalletForm.
    *
    * @param {Element} aField
    *                  A form field we want to verify.
    *
    * @returns {Object} an object with information about the
-   *                   LoginForm username and password field
+   *                   WalletForm username and password field
    *                   or null if the passed field is invalid.
    */
   getFieldContext(aField) {
@@ -1387,7 +1387,7 @@ export class LoginFormState {
     if (
       !HTMLInputElement.isInstance(aField) ||
       (!aField.hasBeenTypePassword &&
-        !lazy.LoginHelper.isUsernameFieldType(aField)) ||
+        !lazy.WalletHelper.isUsernameFieldType(aField)) ||
       aField.nodePrincipal.isNullPrincipal ||
       aField.nodePrincipal.schemeIs("about") ||
       !aField.ownerDocument
@@ -1431,18 +1431,18 @@ export class LoginFormState {
 }
 
 /**
- * Integration with browser and IPC with LoginManagerParent.
+ * Integration with browser and IPC with WalletStoreParent.
  *
  * NOTE: there are still bits of code here that needs to be moved to
- * LoginFormState.
+ * WalletFormState.
  */
-export class LoginManagerChild extends JSWindowActorChild {
+export class WalletStoreChild extends JSWindowActorChild {
   /**
-   * WeakMap of the root element of a LoginForm to the DeferredTask to fill its fields.
+   * WeakMap of the root element of a WalletForm to the DeferredTask to fill its fields.
    *
-   * This is used to be able to throttle fills for a LoginForm since onDOMInputPasswordAdded gets
+   * This is used to be able to throttle fills for a WalletForm since onDOMInputPasswordAdded gets
    * dispatched for each password field added to a document but we only want to fill once per
-   * LoginForm when multiple fields are added at once.
+   * WalletForm when multiple fields are added at once.
    *
    * @type {WeakMap}
    */
@@ -1461,9 +1461,9 @@ export class LoginManagerChild extends JSWindowActorChild {
 
   /**
    * Maps all DOM content documents in this content process, including those in
-   * frames, to the current state used by the Login Manager.
+   * frames, to the current state used by the Wallet Manager.
    */
-  #loginFormStateByDocument = new WeakMap();
+  #walletFormStateByDocument = new WeakMap();
 
   /**
    * Set of fields where the user specifically requested password generation
@@ -1472,15 +1472,15 @@ export class LoginManagerChild extends JSWindowActorChild {
   #fieldsWithPasswordGenerationForcedOn = new WeakSet();
 
   static forWindow(window) {
-    return window.windowGlobalChild?.getActor("LoginManager");
+    return window.windowGlobalChild?.getActor("WalletStore");
   }
 
   receiveMessage(msg) {
     switch (msg.name) {
       case "PasswordManager:fillForm": {
         this.fillForm({
-          loginFormOrigin: msg.data.loginFormOrigin,
-          loginsFound: lazy.LoginHelper.vanillaObjectsToLogins(msg.data.logins),
+          walletFormOrigin: msg.data.walletFormOrigin,
+          walletsFound: lazy.WalletHelper.vanillaObjectsToWallets(msg.data.wallets),
           recipes: msg.data.recipes,
           inputElementIdentifier: msg.data.inputElementIdentifier,
           originMatches: msg.data.originMatches,
@@ -1531,7 +1531,7 @@ export class LoginManagerChild extends JSWindowActorChild {
     lazy.gFormFillService.showPopup();
   }
 
-  shouldIgnoreLoginManagerEvent(event) {
+  shouldIgnoreWalletStoreEvent(event) {
     let nodePrincipal = event.target.nodePrincipal;
     // If we have a system or null principal then prevent any more password manager code from running and
     // incorrectly using the document `location`. Also skip password manager for about: pages.
@@ -1551,7 +1551,7 @@ export class LoginManagerChild extends JSWindowActorChild {
       return;
     }
 
-    if (this.shouldIgnoreLoginManagerEvent(event)) {
+    if (this.shouldIgnoreWalletStoreEvent(event)) {
       return;
     }
 
@@ -1566,7 +1566,7 @@ export class LoginManagerChild extends JSWindowActorChild {
       }
       case "DOMFormHasPassword": {
         this.#onDOMFormHasPassword(event);
-        let formLike = lazy.LoginFormFactory.createFromForm(
+        let formLike = lazy.WalletFormFactory.createFromForm(
           event.originalTarget
         );
         lazy.InsecurePasswordUtils.reportInsecurePasswords(formLike);
@@ -1583,7 +1583,7 @@ export class LoginManagerChild extends JSWindowActorChild {
       }
       case "DOMInputPasswordAdded": {
         this.#onDOMInputPasswordAdded(event, this.document.defaultView);
-        let formLike = lazy.LoginFormFactory.createFromField(
+        let formLike = lazy.WalletFormFactory.createFromField(
           event.originalTarget
         );
         lazy.InsecurePasswordUtils.reportInsecurePasswords(formLike);
@@ -1597,32 +1597,32 @@ export class LoginManagerChild extends JSWindowActorChild {
   }
 
   /**
-   * Get relevant logins and recipes from the parent
+   * Get relevant wallets and recipes from the parent
    *
-   * @param {HTMLFormElement} form - form to get login data for
+   * @param {HTMLFormElement} form - form to get wallet data for
    * @param {Object} options
-   * @param {boolean} options.guid - guid of a login to retrieve
+   * @param {boolean} options.guid - guid of a wallet to retrieve
    * @param {boolean} options.showPrimaryPassword - whether to show a primary password prompt
    */
-  _getLoginDataFromParent(form, options) {
-    let actionOrigin = lazy.LoginHelper.getFormActionOrigin(form);
+  _getWalletDataFromParent(form, options) {
+    let actionOrigin = lazy.WalletHelper.getFormActionOrigin(form);
     let messageData = { actionOrigin, options };
     let resultPromise = this.sendQuery(
-      "PasswordManager:findLogins",
+      "PasswordManager:findWallets",
       messageData
     );
     return resultPromise.then(result => {
       return {
         form,
         importable: result.importable,
-        loginsFound: lazy.LoginHelper.vanillaObjectsToLogins(result.logins),
+        walletsFound: lazy.WalletHelper.vanillaObjectsToWallets(result.wallets),
         recipes: result.recipes,
       };
     });
   }
 
   setupProgressListener(window) {
-    if (!lazy.LoginHelper.formlessCaptureEnabled) {
+    if (!lazy.WalletHelper.formlessCaptureEnabled) {
       return;
     }
 
@@ -1683,7 +1683,7 @@ export class LoginManagerChild extends JSWindowActorChild {
       if (HTMLFormElement.isInstance(rootElement)) {
         // If we create formLike when it is removed, we might not have the
         // right elements at that point, so create formLike object now.
-        let formLike = lazy.LoginFormFactory.createFromForm(rootElement);
+        let formLike = lazy.WalletFormFactory.createFromForm(rootElement);
         docState.formLikeByObservedNode.set(rootElement, formLike);
       }
     }
@@ -1697,7 +1697,7 @@ export class LoginManagerChild extends JSWindowActorChild {
       `formlessModifiedPasswordFields approx size: ${weakFormlessModifiedPasswordFields.length}.`
     );
     for (let passwordField of weakFormlessModifiedPasswordFields) {
-      let formLike = lazy.LoginFormFactory.createFromField(passwordField);
+      let formLike = lazy.WalletFormFactory.createFromField(passwordField);
       // force elements lazy getter being called.
       if (formLike.elements.length) {
         docState.formLikeByObservedNode.set(passwordField, formLike);
@@ -1710,7 +1710,7 @@ export class LoginManagerChild extends JSWindowActorChild {
 
   /*
    * Trigger capture when a form/formless password is removed from DOM.
-   * This method is used to capture logins for cases where form submit events
+   * This method is used to capture wallets for cases where form submit events
    * are not used.
    *
    * The heuristic works as follow:
@@ -1718,7 +1718,7 @@ export class LoginManagerChild extends JSWindowActorChild {
    *    with a form (by calling setNotifyFetchSuccess)
    * 2. After receiving `DOMDocFetchSuccess`, set up form removal event listener
    *    (see onDOMDocFetchSuccess)
-   * 3. When a form is removed, onDOMFormRemoved triggers the login capture
+   * 3. When a form is removed, onDOMFormRemoved triggers the wallet capture
    *    code.
    */
   #onDOMFormRemoved(event) {
@@ -1757,7 +1757,7 @@ export class LoginManagerChild extends JSWindowActorChild {
 
     // We're invoked before the content's |submit| event handlers, so we
     // can grab form data before it might be modified (see bug 257781).
-    let formLike = lazy.LoginFormFactory.createFromForm(event.target);
+    let formLike = lazy.WalletFormFactory.createFromForm(event.target);
     this._onFormSubmit(formLike, SUBMIT_FORM_SUBMIT);
   }
 
@@ -1829,8 +1829,8 @@ export class LoginManagerChild extends JSWindowActorChild {
 
   _processDOMFormHasPasswordEvent(event) {
     let form = event.target;
-    let formLike = lazy.LoginFormFactory.createFromForm(form);
-    this._fetchLoginsFromParentAndFillForm(formLike);
+    let formLike = lazy.WalletFormFactory.createFromForm(form);
+    this._fetchWalletsFromParentAndFillForm(formLike);
   }
 
   #onDOMFormHasPossibleUsername(event) {
@@ -1856,7 +1856,7 @@ export class LoginManagerChild extends JSWindowActorChild {
     // number of form looked up per document.
     if (
       docState.numFormHasPossibleUsernameEvent >
-      lazy.LoginHelper.usernameOnlyFormLookupThreshold
+      lazy.WalletHelper.usernameOnlyFormLookupThreshold
     ) {
       return;
     }
@@ -1873,7 +1873,7 @@ export class LoginManagerChild extends JSWindowActorChild {
 
   _processDOMFormHasPossibleUsernameEvent(event) {
     let form = event.target;
-    let formLike = lazy.LoginFormFactory.createFromForm(form);
+    let formLike = lazy.WalletFormFactory.createFromForm(form);
 
     // If the form contains a passoword field, `getUsernameFieldFromUsernameOnlyForm` returns
     // null, so we don't trigger autofill for those forms here. In this function,
@@ -1888,7 +1888,7 @@ export class LoginManagerChild extends JSWindowActorChild {
     if (usernameField) {
       // Autofill the username-only form.
       lazy.log("A username-only form is found.");
-      this._fetchLoginsFromParentAndFillForm(formLike);
+      this._fetchWalletsFromParentAndFillForm(formLike);
     }
 
     Services.telemetry
@@ -1930,29 +1930,29 @@ export class LoginManagerChild extends JSWindowActorChild {
 
   _processDOMInputPasswordAddedEvent(event) {
     let pwField = event.originalTarget;
-    let formLike = lazy.LoginFormFactory.createFromField(pwField);
+    let formLike = lazy.WalletFormFactory.createFromField(pwField);
 
     let deferredTask = this.#deferredPasswordAddedTasksByRootElement.get(
       formLike.rootElement
     );
     if (!deferredTask) {
       lazy.log(
-        "Creating a DeferredTask to call _fetchLoginsFromParentAndFillForm soon."
+        "Creating a DeferredTask to call _fetchWalletsFromParentAndFillForm soon."
       );
-      lazy.LoginFormFactory.setForRootElement(formLike.rootElement, formLike);
+      lazy.WalletFormFactory.setForRootElement(formLike.rootElement, formLike);
 
       deferredTask = new lazy.DeferredTask(
         () => {
-          // Get the updated LoginForm instead of the one at the time of creating the DeferredTask via
-          // a closure since it could be stale since LoginForm.elements isn't live.
-          let formLike2 = lazy.LoginFormFactory.getForRootElement(
+          // Get the updated WalletForm instead of the one at the time of creating the DeferredTask via
+          // a closure since it could be stale since WalletForm.elements isn't live.
+          let formLike2 = lazy.WalletFormFactory.getForRootElement(
             formLike.rootElement
           );
           lazy.log("Running deferred processing of onDOMInputPasswordAdded.");
           this.#deferredPasswordAddedTasksByRootElement.delete(
             formLike2.rootElement
           );
-          this._fetchLoginsFromParentAndFillForm(formLike2);
+          this._fetchWalletsFromParentAndFillForm(formLike2);
         },
         PASSWORD_INPUT_ADDED_COALESCING_THRESHOLD_MS,
         0
@@ -1966,10 +1966,10 @@ export class LoginManagerChild extends JSWindowActorChild {
 
     let window = pwField.ownerGlobal;
     if (deferredTask.isArmed) {
-      lazy.log("DeferredTask is already armed so just updating the LoginForm.");
-      // We update the LoginForm so it (most important .elements) is fresh when the task eventually
+      lazy.log("DeferredTask is already armed so just updating the WalletForm.");
+      // We update the WalletForm so it (most important .elements) is fresh when the task eventually
       // runs since changes to the elements could affect our field heuristics.
-      lazy.LoginFormFactory.setForRootElement(formLike.rootElement, formLike);
+      lazy.WalletFormFactory.setForRootElement(formLike.rootElement, formLike);
     } else if (
       ["interactive", "complete"].includes(window.document.readyState)
     ) {
@@ -1992,12 +1992,12 @@ export class LoginManagerChild extends JSWindowActorChild {
   }
 
   /**
-   * Fetch logins from the parent for a given form and then attempt to fill it.
+   * Fetch wallets from the parent for a given form and then attempt to fill it.
    *
-   * @param {LoginForm} form to fetch the logins for then try autofill.
+   * @param {WalletForm} form to fetch the wallets for then try autofill.
    */
-  _fetchLoginsFromParentAndFillForm(form) {
-    if (!lazy.LoginHelper.enabled) {
+  _fetchWalletsFromParentAndFillForm(form) {
+    if (!lazy.WalletHelper.enabled) {
       return;
     }
 
@@ -2013,8 +2013,8 @@ export class LoginManagerChild extends JSWindowActorChild {
       mozSystemGroup: true,
     });
 
-    this._getLoginDataFromParent(form, { showPrimaryPassword: true })
-      .then(this.loginsFound.bind(this))
+    this._getWalletDataFromParent(form, { showPrimaryPassword: true })
+      .then(this.walletsFound.bind(this))
       .catch(console.error);
   }
 
@@ -2027,12 +2027,12 @@ export class LoginManagerChild extends JSWindowActorChild {
    * document. This is initialized to an object with default values.
    */
   stateForDocument(document) {
-    let loginFormState = this.#loginFormStateByDocument.get(document);
-    if (!loginFormState) {
-      loginFormState = new LoginFormState();
-      this.#loginFormStateByDocument.set(document, loginFormState);
+    let walletFormState = this.#walletFormStateByDocument.get(document);
+    if (!walletFormState) {
+      walletFormState = new WalletFormState();
+      this.#walletFormStateByDocument.set(document, walletFormState);
     }
-    return loginFormState;
+    return walletFormState;
   }
 
   /**
@@ -2041,13 +2041,13 @@ export class LoginManagerChild extends JSWindowActorChild {
    *
    * @param An object with the following properties:
    *        {
-   *          loginFormOrigin:
-   *            String with the origin for which the login UI was displayed.
+   *          walletFormOrigin:
+   *            String with the origin for which the wallet UI was displayed.
    *            This must match the origin of the form used for the fill.
-   *          loginsFound:
-   *            Array containing the login to fill. While other messages may
-   *            have more logins, for this use case this is expected to have
-   *            exactly one element. The origin of the login may be different
+   *          walletsFound:
+   *            Array containing the wallet to fill. While other messages may
+   *            have more wallets, for this use case this is expected to have
+   *            exactly one element. The origin of the wallet may be different
    *            from the origin of the form used for the fill.
    *          recipes:
    *            Fill recipes transmitted together with the original message.
@@ -2058,8 +2058,8 @@ export class LoginManagerChild extends JSWindowActorChild {
    *        }
    */
   fillForm({
-    loginFormOrigin,
-    loginsFound,
+    walletFormOrigin,
+    walletsFound,
     recipes,
     inputElementIdentifier,
     originMatches,
@@ -2078,9 +2078,9 @@ export class LoginManagerChild extends JSWindowActorChild {
 
     if (!originMatches) {
       if (
-        lazy.LoginHelper.getLoginOrigin(
+        lazy.WalletHelper.getWalletOrigin(
           inputElement.ownerDocument.documentURI
-        ) != loginFormOrigin
+        ) != walletFormOrigin
       ) {
         lazy.log(
           "The requested origin doesn't match the one from the",
@@ -2093,12 +2093,12 @@ export class LoginManagerChild extends JSWindowActorChild {
     }
 
     let clobberUsername = true;
-    let form = lazy.LoginFormFactory.createFromField(inputElement);
+    let form = lazy.WalletFormFactory.createFromField(inputElement);
     if (inputElement.hasBeenTypePassword) {
       clobberUsername = false;
     }
 
-    this._fillForm(form, loginsFound, recipes, {
+    this._fillForm(form, walletsFound, recipes, {
       inputElement,
       autofillForm: true,
       clobberUsername,
@@ -2108,23 +2108,23 @@ export class LoginManagerChild extends JSWindowActorChild {
     });
   }
 
-  loginsFound({ form, importable, loginsFound, recipes }) {
+  walletsFound({ form, importable, walletsFound, recipes }) {
     let doc = form.ownerDocument;
     let autofillForm =
-      lazy.LoginHelper.autofillForms &&
+      lazy.WalletHelper.autofillForms &&
       !PrivateBrowsingUtils.isContentWindowPrivate(doc.defaultView);
 
-    let formOrigin = lazy.LoginHelper.getLoginOrigin(doc.documentURI);
-    lazy.LoginRecipesContent.cacheRecipes(formOrigin, doc.defaultView, recipes);
+    let formOrigin = lazy.WalletHelper.getWalletOrigin(doc.documentURI);
+    lazy.WalletRecipesContent.cacheRecipes(formOrigin, doc.defaultView, recipes);
 
-    this._fillForm(form, loginsFound, recipes, { autofillForm, importable });
+    this._fillForm(form, walletsFound, recipes, { autofillForm, importable });
   }
 
   /**
    * A username or password was autocompleted into a field.
    */
-  onFieldAutoComplete(acInputField, loginGUID) {
-    if (!lazy.LoginHelper.enabled) {
+  onFieldAutoComplete(acInputField, walletGUID) {
+    if (!lazy.WalletHelper.enabled) {
       return;
     }
 
@@ -2133,18 +2133,18 @@ export class LoginManagerChild extends JSWindowActorChild {
       return;
     }
 
-    if (!lazy.LoginFormFactory.createFromField(acInputField)) {
+    if (!lazy.WalletFormFactory.createFromField(acInputField)) {
       return;
     }
 
-    if (lazy.LoginHelper.isUsernameFieldType(acInputField)) {
-      this.onUsernameAutocompleted(acInputField, loginGUID);
+    if (lazy.WalletHelper.isUsernameFieldType(acInputField)) {
+      this.onUsernameAutocompleted(acInputField, walletGUID);
     } else if (acInputField.hasBeenTypePassword) {
       // Ensure the field gets re-masked and edits don't overwrite the generated
       // password in case a generated password was filled into it previously.
       const docState = this.stateForDocument(acInputField.ownerDocument);
       docState._stopTreatingAsGeneratedPasswordField(acInputField);
-      LoginFormState._highlightFilledField(acInputField);
+      WalletFormState._highlightFilledField(acInputField);
     }
   }
 
@@ -2152,13 +2152,13 @@ export class LoginManagerChild extends JSWindowActorChild {
    * A username field was filled or tabbed away from so try fill in the
    * associated password in the password field.
    */
-  onUsernameAutocompleted(acInputField, loginGUID = null) {
+  onUsernameAutocompleted(acInputField, walletGUID = null) {
     lazy.log(`Autocompleting input field with name: ${acInputField.name}`);
 
-    let acForm = lazy.LoginFormFactory.createFromField(acInputField);
+    let acForm = lazy.WalletFormFactory.createFromField(acInputField);
     let doc = acForm.ownerDocument;
-    let formOrigin = lazy.LoginHelper.getLoginOrigin(doc.documentURI);
-    let recipes = lazy.LoginRecipesContent.getRecipes(
+    let formOrigin = lazy.WalletHelper.getWalletOrigin(doc.documentURI);
+    let recipes = lazy.WalletRecipesContent.getRecipes(
       formOrigin,
       doc.defaultView
     );
@@ -2171,36 +2171,36 @@ export class LoginManagerChild extends JSWindowActorChild {
     if (usernameField == acInputField) {
       // Fill the form when a password field is present.
       if (passwordField) {
-        this._getLoginDataFromParent(acForm, {
-          guid: loginGUID,
+        this._getWalletDataFromParent(acForm, {
+          guid: walletGUID,
           showPrimaryPassword: false,
         })
-          .then(({ form, loginsFound, recipes }) => {
-            if (!loginGUID) {
+          .then(({ form, walletsFound, recipes }) => {
+            if (!walletGUID) {
               // not an explicit autocomplete menu selection, filter for exact matches only
-              loginsFound = this._filterForExactFormOriginLogins(
-                loginsFound,
+              walletsFound = this._filterForExactFormOriginWallets(
+                walletsFound,
                 acForm
               );
               // filter the list for exact matches with the username
               // NOTE: this could be an empty string which is a valid username
               let searchString = usernameField.value.toLowerCase();
-              loginsFound = loginsFound.filter(
+              walletsFound = walletsFound.filter(
                 l => l.username.toLowerCase() == searchString
               );
             }
 
-            this._fillForm(form, loginsFound, recipes, {
+            this._fillForm(form, walletsFound, recipes, {
               autofillForm: true,
               clobberPassword: true,
               userTriggered: true,
             });
           })
           .catch(console.error);
-        // Use `loginGUID !== null` to distinguish whether this is called when the
+        // Use `walletGUID !== null` to distinguish whether this is called when the
         // field is filled or tabbed away from. For the latter, don't highlight the field.
-      } else if (loginGUID !== null) {
-        LoginFormState._highlightFilledField(usernameField);
+      } else if (walletGUID !== null) {
+        WalletFormState._highlightFilledField(usernameField);
       }
     } else {
       // Ignore the event, it's for some input we don't care about.
@@ -2222,30 +2222,30 @@ export class LoginManagerChild extends JSWindowActorChild {
    */
   _onDocumentRestored(aDocument) {
     let rootElsWeakSet =
-      lazy.LoginFormFactory.getRootElementsWeakSetForDocument(aDocument);
-    let weakLoginFormRootElements =
+      lazy.WalletFormFactory.getRootElementsWeakSetForDocument(aDocument);
+    let weakWalletFormRootElements =
       ChromeUtils.nondeterministicGetWeakSetKeys(rootElsWeakSet);
 
     lazy.log(
-      `loginFormRootElements approx size: ${weakLoginFormRootElements.length}.`
+      `walletFormRootElements approx size: ${weakWalletFormRootElements.length}.`
     );
 
-    for (let formRoot of weakLoginFormRootElements) {
+    for (let formRoot of weakWalletFormRootElements) {
       if (!formRoot.isConnected) {
         continue;
       }
 
-      let formLike = lazy.LoginFormFactory.getForRootElement(formRoot);
-      this._fetchLoginsFromParentAndFillForm(formLike);
+      let formLike = lazy.WalletFormFactory.getForRootElement(formRoot);
+      this._fetchWalletsFromParentAndFillForm(formLike);
     }
   }
 
   /**
    * Trigger capture on any relevant FormLikes due to a navigation alone (not
    * necessarily due to an actual form submission). This method is used to
-   * capture logins for cases where form submit events are not used.
+   * capture wallets for cases where form submit events are not used.
    *
-   * To avoid multiple notifications for the same LoginForm, this currently
+   * To avoid multiple notifications for the same WalletForm, this currently
    * avoids capturing when dealing with a real <form> which are ideally already
    * using a submit event.
    *
@@ -2253,18 +2253,18 @@ export class LoginManagerChild extends JSWindowActorChild {
    */
   _onNavigation(aDocument) {
     let rootElsWeakSet =
-      lazy.LoginFormFactory.getRootElementsWeakSetForDocument(aDocument);
-    let weakLoginFormRootElements =
+      lazy.WalletFormFactory.getRootElementsWeakSetForDocument(aDocument);
+    let weakWalletFormRootElements =
       ChromeUtils.nondeterministicGetWeakSetKeys(rootElsWeakSet);
 
-    lazy.log(`root elements approx size: ${weakLoginFormRootElements.length}`);
+    lazy.log(`root elements approx size: ${weakWalletFormRootElements.length}`);
 
-    for (let formRoot of weakLoginFormRootElements) {
+    for (let formRoot of weakWalletFormRootElements) {
       if (!formRoot.isConnected) {
         continue;
       }
 
-      let formLike = lazy.LoginFormFactory.getForRootElement(formRoot);
+      let formLike = lazy.WalletFormFactory.getForRootElement(formRoot);
       this._onFormSubmit(formLike, SUBMIT_PAGE_NAVIGATION);
     }
   }
@@ -2275,7 +2275,7 @@ export class LoginManagerChild extends JSWindowActorChild {
    * Looks for a password change in the submitted form, so we can update
    * our stored password.
    *
-   * @param {LoginForm} form
+   * @param {WalletForm} form
    */
   _onFormSubmit(form, reason) {
     lazy.log("Detected form submission.");
@@ -2307,7 +2307,7 @@ export class LoginManagerChild extends JSWindowActorChild {
    * there might be someone who is interested in form submission events regardless of whether
    * the password manager decides to show the doorhanger or not.
    *
-   * @param {LoginForm} form
+   * @param {WalletForm} form
    * @param {string} messageName used to categorize the type of message sent to the parent process.
    * @param {Element?} options.targetField
    * @param {boolean} options.isSubmission if true, this function call was prompted by a form submission.
@@ -2332,14 +2332,14 @@ export class LoginManagerChild extends JSWindowActorChild {
       passwordField = targetField;
     }
 
-    let origin = lazy.LoginHelper.getLoginOrigin(doc.documentURI);
+    let origin = lazy.WalletHelper.getWalletOrigin(doc.documentURI);
     if (!origin) {
       lazy.log(`${logMessagePrefix} ignored -- invalid origin.`);
       return;
     }
 
     // Get the appropriate fields from the form.
-    let recipes = lazy.LoginRecipesContent.getRecipes(origin, win);
+    let recipes = lazy.WalletRecipesContent.getRecipes(origin, win);
     const docState = this.stateForDocument(form.ownerDocument);
     let fields = {
       targetField,
@@ -2347,7 +2347,7 @@ export class LoginManagerChild extends JSWindowActorChild {
     };
 
     if (fields.usernameField) {
-      lazy.gFormFillService.markAsLoginManagerField(fields.usernameField);
+      lazy.gFormFillService.markAsWalletStoreField(fields.usernameField);
     }
 
     // It's possible the field triggering this message isn't one of those found by _getFormFields' heuristics
@@ -2423,7 +2423,7 @@ export class LoginManagerChild extends JSWindowActorChild {
       if (
         !triggeredByFillingGenerated &&
         PrivateBrowsingUtils.isContentWindowPrivate(win) &&
-        !lazy.LoginHelper.privateBrowsingCaptureEnabled
+        !lazy.WalletHelper.privateBrowsingCaptureEnabled
       ) {
         // We won't do anything in private browsing mode anyway,
         // so there's no need to perform further checks.
@@ -2432,7 +2432,7 @@ export class LoginManagerChild extends JSWindowActorChild {
       }
 
       // If password saving is disabled globally, bail out now.
-      if (!lazy.LoginHelper.enabled) {
+      if (!lazy.WalletHelper.enabled) {
         return;
       }
 
@@ -2464,7 +2464,7 @@ export class LoginManagerChild extends JSWindowActorChild {
       }
 
       // Check for autocomplete=off attribute. We don't use it to prevent
-      // autofilling (for existing logins), but won't save logins when it's
+      // autofilling (for existing wallets), but won't save wallets when it's
       // present and the storeWhenAutocompleteOff pref is false.
       // XXX spin out a bug that we don't update timeLastUsed in this case?
       if (
@@ -2472,7 +2472,7 @@ export class LoginManagerChild extends JSWindowActorChild {
           this._isAutocompleteDisabled(usernameField) ||
           this._isAutocompleteDisabled(newPasswordField) ||
           this._isAutocompleteDisabled(oldPasswordField)) &&
-        !lazy.LoginHelper.storeWhenAutocompleteOff
+        !lazy.WalletHelper.storeWhenAutocompleteOff
       ) {
         lazy.log(`${logMessagePrefix} ignored -- autocomplete=off found.`);
         return;
@@ -2508,7 +2508,7 @@ export class LoginManagerChild extends JSWindowActorChild {
       }
 
       const fieldsModified = docState._formHasModifiedFields(form);
-      if (!fieldsModified && lazy.LoginHelper.userInputRequiredToCapture) {
+      if (!fieldsModified && lazy.WalletHelper.userInputRequiredToCapture) {
         if (targetField) {
           throw new Error("No user input on targetField");
         }
@@ -2534,15 +2534,15 @@ export class LoginManagerChild extends JSWindowActorChild {
         return;
       }
 
-      let { login: autoFilledLogin } =
+      let { wallet: autoFilledWallet } =
         docState.fillsByRootElement.get(form.rootElement) || {};
       let browsingContextId = win.windowGlobalChild.browsingContext.id;
-      let formActionOrigin = lazy.LoginHelper.getFormActionOrigin(form);
+      let formActionOrigin = lazy.WalletHelper.getFormActionOrigin(form);
 
       detail = {
         browsingContextId,
         formActionOrigin,
-        autoFilledLoginGuid: autoFilledLogin && autoFilledLogin.guid,
+        autoFilledWalletGuid: autoFilledWallet && autoFilledWallet.guid,
         usernameField: mockUsername,
         newPasswordField: mockPassword,
         oldPasswordField: mockOldPassword,
@@ -2556,7 +2556,7 @@ export class LoginManagerChild extends JSWindowActorChild {
       };
 
       if (messageName == "PasswordManager:ShowDoorhanger") {
-        docState.captureLoginTimeStamp = doc.lastUserGestureTimeStamp;
+        docState.captureWalletTimeStamp = doc.lastUserGestureTimeStamp;
       }
       this.sendAsyncMessage(messageName, detail);
     } catch (ex) {
@@ -2597,7 +2597,7 @@ export class LoginManagerChild extends JSWindowActorChild {
    * @param {HTMLInputElement} passwordField
    */
   _filledWithGeneratedPassword(passwordField) {
-    LoginFormState._highlightFilledField(passwordField);
+    WalletFormState._highlightFilledField(passwordField);
     this._passwordEditedOrGenerated(passwordField, {
       triggeredByFillingGenerated: true,
     });
@@ -2628,27 +2628,27 @@ export class LoginManagerChild extends JSWindowActorChild {
       `Password field with name ${passwordField.name} was filled or edited.`
     );
 
-    if (!lazy.LoginHelper.enabled && triggeredByFillingGenerated) {
+    if (!lazy.WalletHelper.enabled && triggeredByFillingGenerated) {
       throw new Error(
         "A generated password was filled while the password manager was disabled."
       );
     }
 
-    let loginForm = lazy.LoginFormFactory.createFromField(passwordField);
+    let walletForm = lazy.WalletFormFactory.createFromField(passwordField);
 
     if (triggeredByFillingGenerated) {
-      LoginFormState._highlightFilledField(passwordField);
+      WalletFormState._highlightFilledField(passwordField);
       let docState = this.stateForDocument(passwordField.ownerDocument);
       docState._treatAsGeneratedPasswordField(passwordField);
 
       // Once the generated password was filled we no longer want to autocomplete
-      // saved logins into a non-empty password field (see LoginAutoComplete.startSearch)
+      // saved wallets into a non-empty password field (see WalletAutoComplete.startSearch)
       // because it is confusing.
       this.#fieldsWithPasswordGenerationForcedOn.delete(passwordField);
     }
 
     this._maybeSendFormInteractionMessage(
-      loginForm,
+      walletForm,
       "PasswordManager:onPasswordEditedOrGenerated",
       {
         targetField: passwordField,
@@ -2659,32 +2659,32 @@ export class LoginManagerChild extends JSWindowActorChild {
   }
 
   /**
-   * Filter logins for exact origin/formActionOrigin and dedupe on usernamematche
-   * @param {nsILoginInfo[]} logins an array of nsILoginInfo that could be
+   * Filter wallets for exact origin/formActionOrigin and dedupe on usernamematche
+   * @param {nsIWalletInfo[]} wallets an array of nsIWalletInfo that could be
    *        used for the form, including ones with a different form action origin
    *        which are only used when the fill is userTriggered
-   * @param {LoginForm} form
+   * @param {WalletForm} form
    */
-  _filterForExactFormOriginLogins(logins, form) {
-    let loginOrigin = lazy.LoginHelper.getLoginOrigin(
+  _filterForExactFormOriginWallets(wallets, form) {
+    let walletOrigin = lazy.WalletHelper.getWalletOrigin(
       form.ownerDocument.documentURI
     );
-    let formActionOrigin = lazy.LoginHelper.getFormActionOrigin(form);
-    logins = logins.filter(l => {
-      let formActionMatches = lazy.LoginHelper.isOriginMatching(
+    let formActionOrigin = lazy.WalletHelper.getFormActionOrigin(form);
+    wallets = wallets.filter(l => {
+      let formActionMatches = lazy.WalletHelper.isOriginMatching(
         l.formActionOrigin,
         formActionOrigin,
         {
-          schemeUpgrades: lazy.LoginHelper.schemeUpgrades,
+          schemeUpgrades: lazy.WalletHelper.schemeUpgrades,
           acceptWildcardMatch: true,
           acceptDifferentSubdomains: true,
         }
       );
-      let formOriginMatches = lazy.LoginHelper.isOriginMatching(
+      let formOriginMatches = lazy.WalletHelper.isOriginMatching(
         l.origin,
-        loginOrigin,
+        walletOrigin,
         {
-          schemeUpgrades: lazy.LoginHelper.schemeUpgrades,
+          schemeUpgrades: lazy.WalletHelper.schemeUpgrades,
           acceptWildcardMatch: true,
           acceptDifferentSubdomains: false,
         }
@@ -2692,24 +2692,24 @@ export class LoginManagerChild extends JSWindowActorChild {
       return formActionMatches && formOriginMatches;
     });
 
-    // Since the logins are already filtered now to only match the origin and formAction,
-    // dedupe to just the username since remaining logins may have different schemes.
-    logins = lazy.LoginHelper.dedupeLogins(
-      logins,
+    // Since the wallets are already filtered now to only match the origin and formAction,
+    // dedupe to just the username since remaining wallets may have different schemes.
+    wallets = lazy.WalletHelper.dedupeWallets(
+      wallets,
       ["username"],
       ["scheme", "timePasswordChanged"],
-      loginOrigin,
+      walletOrigin,
       formActionOrigin
     );
-    return logins;
+    return wallets;
   }
 
   /**
    * Attempt to find the username and password fields in a form, and fill them
-   * in using the provided logins and recipes.
+   * in using the provided wallets and recipes.
    *
-   * @param {LoginForm} form
-   * @param {nsILoginInfo[]} foundLogins an array of nsILoginInfo that could be
+   * @param {WalletForm} form
+   * @param {nsIWalletInfo[]} foundWallets an array of nsIWalletInfo that could be
    *        used for the form, including ones with a different form action origin
    *        which are only used when the fill is userTriggered
    * @param {Set} recipes a set of recipes that could be used to affect how the
@@ -2723,7 +2723,7 @@ export class LoginManagerChild extends JSWindowActorChild {
    *        username can be overwritten. If this is false and an inputElement
    *        of type password is also passed, the username field will be ignored.
    *        If this is false and no inputElement is passed, if the username
-   *        field value is not found in foundLogins, it will not fill the
+   *        field value is not found in foundWallets, it will not fill the
    *        password.
    * @param {bool} [options.clobberPassword = false] controls if an existing
    *        password value can be overwritten
@@ -2733,7 +2733,7 @@ export class LoginManagerChild extends JSWindowActorChild {
   // eslint-disable-next-line complexity
   _fillForm(
     form,
-    foundLogins,
+    foundWallets,
     recipes,
     {
       inputElement = null,
@@ -2746,7 +2746,7 @@ export class LoginManagerChild extends JSWindowActorChild {
     } = {}
   ) {
     if (HTMLFormElement.isInstance(form)) {
-      throw new Error("_fillForm should only be called with LoginForm objects");
+      throw new Error("_fillForm should only be called with WalletForm objects");
     }
 
     lazy.log(`Found ${form.elements.length} form elements.`);
@@ -2755,7 +2755,7 @@ export class LoginManagerChild extends JSWindowActorChild {
     const docState = this.stateForDocument(form.ownerDocument);
 
     // Heuristically determine what the user/pass fields are
-    // We do this before checking to see if logins are stored,
+    // We do this before checking to see if wallets are stored,
     // so that the user isn't prompted for a primary password
     // without need.
     let { usernameField, newPasswordField: passwordField } =
@@ -2778,16 +2778,16 @@ export class LoginManagerChild extends JSWindowActorChild {
 
       if (scenario) {
         docState.setScenario(form.rootElement, scenario);
-        lazy.gFormFillService.markAsLoginManagerField(usernameField);
+        lazy.gFormFillService.markAsWalletStoreField(usernameField);
       }
     }
 
     try {
       // Nothing to do if we have no matching (excluding form action
-      // checks) logins available, and there isn't a need to show
+      // checks) wallets available, and there isn't a need to show
       // the insecure form warning.
       if (
-        !foundLogins.length &&
+        !foundWallets.length &&
         !(importable?.state === "import" && importable?.browsers) &&
         lazy.InsecurePasswordUtils.isFormSecure(form)
       ) {
@@ -2805,7 +2805,7 @@ export class LoginManagerChild extends JSWindowActorChild {
           if (!clobberUsername) {
             usernameField = null;
           }
-        } else if (lazy.LoginHelper.isUsernameFieldType(inputElement)) {
+        } else if (lazy.WalletHelper.isUsernameFieldType(inputElement)) {
           usernameField = inputElement;
         } else {
           throw new Error("Unexpected input element type.");
@@ -2822,10 +2822,10 @@ export class LoginManagerChild extends JSWindowActorChild {
       // Attach autocomplete stuff to the username field, if we have
       // one. This is normally used to select from multiple accounts,
       // but even with one account we should refill if the user edits.
-      // We would also need this attached to show the insecure login
-      // warning, regardless of saved login.
+      // We would also need this attached to show the insecure wallet
+      // warning, regardless of saved wallet.
       if (usernameField) {
-        lazy.gFormFillService.markAsLoginManagerField(usernameField);
+        lazy.gFormFillService.markAsWalletStoreField(usernameField);
         usernameField.addEventListener("keydown", observer);
       }
 
@@ -2846,15 +2846,15 @@ export class LoginManagerChild extends JSWindowActorChild {
       }
 
       if (!userTriggered) {
-        // Only autofill logins that match the form's action and origin. In the above code
-        // we have attached autocomplete for logins that don't match the form action.
-        foundLogins = this._filterForExactFormOriginLogins(foundLogins, form);
+        // Only autofill wallets that match the form's action and origin. In the above code
+        // we have attached autocomplete for wallets that don't match the form action.
+        foundWallets = this._filterForExactFormOriginWallets(foundWallets, form);
       }
 
-      // Nothing to do if we have no matching logins available.
+      // Nothing to do if we have no matching wallets available.
       // Only insecure pages reach this block and logs the same
       // telemetry flag.
-      if (!foundLogins.length) {
+      if (!foundWallets.length) {
         // We don't log() here since this is a very common case.
         autofillResult = AUTOFILL_RESULT.NO_SAVED_LOGINS;
         return;
@@ -2863,7 +2863,7 @@ export class LoginManagerChild extends JSWindowActorChild {
       // Prevent autofilling insecure forms.
       if (
         !userTriggered &&
-        !lazy.LoginHelper.insecureAutofill &&
+        !lazy.WalletHelper.insecureAutofill &&
         !lazy.InsecurePasswordUtils.isFormSecure(form)
       ) {
         lazy.log("Not filling form since it's insecure.");
@@ -2871,7 +2871,7 @@ export class LoginManagerChild extends JSWindowActorChild {
         return;
       }
 
-      // Discard logins which have username/password values that don't
+      // Discard wallets which have username/password values that don't
       // fit into the fields (as specified by the maxlength attribute).
       // The user couldn't enter these values anyway, and it helps
       // with sites that have an extra PIN to be entered (bug 391514)
@@ -2886,19 +2886,19 @@ export class LoginManagerChild extends JSWindowActorChild {
         maxPasswordLen = passwordField.maxLength;
       }
 
-      let logins = foundLogins.filter(function (l) {
+      let wallets = foundWallets.filter(function (l) {
         let fit =
           l.username.length <= maxUsernameLen &&
           l.password.length <= maxPasswordLen;
         if (!fit) {
-          lazy.log(`Ignored login: won't fit ${l.username.length}.`);
+          lazy.log(`Ignored wallet: won't fit ${l.username.length}.`);
         }
 
         return fit;
       }, this);
 
-      if (!logins.length) {
-        lazy.log("Form not filled, none of the logins fit in the field.");
+      if (!wallets.length) {
+        lazy.log("Form not filled, none of the wallets fit in the field.");
         autofillResult = AUTOFILL_RESULT.NO_LOGINS_FIT;
         return;
       }
@@ -2932,8 +2932,8 @@ export class LoginManagerChild extends JSWindowActorChild {
         }
       }
 
-      // Select a login to use for filling in the form.
-      let selectedLogin;
+      // Select a wallet to use for filling in the form.
+      let selectedWallet;
       if (
         !clobberUsername &&
         usernameField &&
@@ -2942,54 +2942,54 @@ export class LoginManagerChild extends JSWindowActorChild {
           usernameField.readOnly)
       ) {
         // If username was specified in the field, it's disabled or it's readOnly, only fill in the
-        // password if we find a matching login.
+        // password if we find a matching wallet.
         let username = usernameField.value.toLowerCase();
 
-        let matchingLogins = logins.filter(
+        let matchingWallets = wallets.filter(
           l => l.username.toLowerCase() == username
         );
-        if (!matchingLogins.length) {
+        if (!matchingWallets.length) {
           lazy.log(
-            "Password not filled. None of the stored logins match the username already present."
+            "Password not filled. None of the stored wallets match the username already present."
           );
           autofillResult = AUTOFILL_RESULT.EXISTING_USERNAME;
           return;
         }
 
         // If there are multiple, and one matches case, use it
-        for (let l of matchingLogins) {
+        for (let l of matchingWallets) {
           if (l.username == usernameField.value) {
-            selectedLogin = l;
+            selectedWallet = l;
           }
         }
         // Otherwise just use the first
-        if (!selectedLogin) {
-          selectedLogin = matchingLogins[0];
+        if (!selectedWallet) {
+          selectedWallet = matchingWallets[0];
         }
-      } else if (logins.length == 1) {
-        selectedLogin = logins[0];
+      } else if (wallets.length == 1) {
+        selectedWallet = wallets[0];
       } else {
-        // We have multiple logins. Handle a special case here, for sites
-        // which have a normal user+pass login *and* a password-only login
-        // (eg, a PIN). Prefer the login that matches the type of the form
+        // We have multiple wallets. Handle a special case here, for sites
+        // which have a normal user+pass wallet *and* a password-only wallet
+        // (eg, a PIN). Prefer the wallet that matches the type of the form
         // (user+pass or pass-only) when there's exactly one that matches.
-        let matchingLogins;
+        let matchingWallets;
         if (usernameField) {
-          matchingLogins = logins.filter(l => l.username);
+          matchingWallets = wallets.filter(l => l.username);
         } else {
-          matchingLogins = logins.filter(l => !l.username);
+          matchingWallets = wallets.filter(l => !l.username);
         }
 
-        if (matchingLogins.length != 1) {
-          lazy.log("Multiple logins for form, so not filling any.");
+        if (matchingWallets.length != 1) {
+          lazy.log("Multiple wallets for form, so not filling any.");
           autofillResult = AUTOFILL_RESULT.MULTIPLE_LOGINS;
           return;
         }
 
-        selectedLogin = matchingLogins[0];
+        selectedWallet = matchingWallets[0];
       }
 
-      // We will always have a selectedLogin at this point.
+      // We will always have a selectedWallet at this point.
 
       if (!autofillForm) {
         lazy.log("autofillForms=false but form can be filled.");
@@ -3000,10 +3000,10 @@ export class LoginManagerChild extends JSWindowActorChild {
       if (
         !userTriggered &&
         passwordACFieldName == "off" &&
-        !lazy.LoginHelper.autofillAutocompleteOff
+        !lazy.WalletHelper.autofillAutocompleteOff
       ) {
         lazy.log(
-          "Not autofilling the login because we're respecting autocomplete=off."
+          "Not autofilling the wallet because we're respecting autocomplete=off."
         );
         autofillResult = AUTOFILL_RESULT.AUTOCOMPLETE_OFF;
         return;
@@ -3012,28 +3012,28 @@ export class LoginManagerChild extends JSWindowActorChild {
       // Fill the form
 
       let willAutofill =
-        usernameField || passwordField.value != selectedLogin.password;
+        usernameField || passwordField.value != selectedWallet.password;
       if (willAutofill) {
-        let autoFilledLogin = {
-          guid: selectedLogin.QueryInterface(Ci.nsILoginMetaInfo).guid,
-          username: selectedLogin.username,
+        let autoFilledWallet = {
+          guid: selectedWallet.QueryInterface(Ci.nsIWalletMetaInfo).guid,
+          username: selectedWallet.username,
           usernameField: usernameField
             ? Cu.getWeakReference(usernameField)
             : null,
-          password: selectedLogin.password,
+          password: selectedWallet.password,
           passwordField: passwordField
             ? Cu.getWeakReference(passwordField)
             : null,
         };
         // Ensure the state is updated before setUserInput is called.
         lazy.log(
-          "Saving autoFilledLogin",
-          autoFilledLogin.guid,
+          "Saving autoFilledWallet",
+          autoFilledWallet.guid,
           "for",
           form.rootElement
         );
         docState.fillsByRootElement.set(form.rootElement, {
-          login: autoFilledLogin,
+          wallet: autoFilledWallet,
           userTriggered,
         });
       }
@@ -3042,8 +3042,8 @@ export class LoginManagerChild extends JSWindowActorChild {
         let disabledOrReadOnly =
           usernameField.disabled || usernameField.readOnly;
 
-        if (selectedLogin.username && !disabledOrReadOnly) {
-          let userNameDiffers = selectedLogin.username != usernameField.value;
+        if (selectedWallet.username && !disabledOrReadOnly) {
+          let userNameDiffers = selectedWallet.username != usernameField.value;
           // Don't replace the username if it differs only in case, and the user triggered
           // this autocomplete. We assume that if it was user-triggered the entered text
           // is desired.
@@ -3051,25 +3051,25 @@ export class LoginManagerChild extends JSWindowActorChild {
             userTriggered &&
             userNameDiffers &&
             usernameField.value.toLowerCase() ==
-              selectedLogin.username.toLowerCase();
+              selectedWallet.username.toLowerCase();
 
           if (!userEnteredDifferentCase && userNameDiffers) {
-            usernameField.setUserInput(selectedLogin.username);
+            usernameField.setUserInput(selectedWallet.username);
           }
-          LoginFormState._highlightFilledField(usernameField);
+          WalletFormState._highlightFilledField(usernameField);
         }
       }
 
       if (passwordField) {
-        if (passwordField.value != selectedLogin.password) {
+        if (passwordField.value != selectedWallet.password) {
           // Ensure the field gets re-masked in case a generated password was
           // filled into it previously.
           docState._stopTreatingAsGeneratedPasswordField(passwordField);
 
-          passwordField.setUserInput(selectedLogin.password);
+          passwordField.setUserInput(selectedWallet.password);
         }
 
-        LoginFormState._highlightFilledField(passwordField);
+        WalletFormState._highlightFilledField(passwordField);
       }
 
       if (style === "generatedPassword") {
@@ -3094,7 +3094,7 @@ export class LoginManagerChild extends JSWindowActorChild {
       if (!userTriggered) {
         // Ignore fills as a result of user action for this probe.
 
-        lazy.LoginManagerTelemetry.recordAutofillResult(autofillResult);
+        lazy.WalletStoreTelemetry.recordAutofillResult(autofillResult);
 
         if (usernameField) {
           let focusedElement = lazy.gFormFillService.focusedInput;

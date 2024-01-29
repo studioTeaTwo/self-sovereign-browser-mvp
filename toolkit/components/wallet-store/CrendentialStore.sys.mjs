@@ -9,7 +9,7 @@
  * With indentation applied, the file would look like this:
  *
  * {
- *   "logins": [
+ *   "credentials": [
  *     {
  *       "id": 2,
  *       "hostname": "http://www.example.com",
@@ -58,22 +58,22 @@ ChromeUtils.defineESModuleGetters(lazy, {
  * particular when no special one-time update logic is needed.
  *
  * For example, this number should NOT be changed when a new optional field is
- * added to a login entry.
+ * added to a credential entry.
  */
 const kDataVersion = 3;
 
 const MAX_DATE_MS = 8640000000000000;
 
-// LoginStore
+// CredentialStore
 
 /**
- * Inherits from JSONFile and handles serialization of login-related data and
+ * Inherits from JSONFile and handles serialization of credential-related data and
  * persistence into a file.
  *
  * @param aPath
  *        String containing the file path where data should be saved.
  */
-export function LoginStore(aPath, aBackupPath = "") {
+export function CredentialStore(aPath, aBackupPath = "") {
   JSONFile.call(this, {
     path: aPath,
     dataPostProcessor: this._dataPostProcessor.bind(this),
@@ -81,12 +81,12 @@ export function LoginStore(aPath, aBackupPath = "") {
   });
 }
 
-LoginStore.prototype = Object.create(JSONFile.prototype);
-LoginStore.prototype.constructor = LoginStore;
+CredentialStore.prototype = Object.create(JSONFile.prototype);
+CredentialStore.prototype.constructor = CredentialStore;
 
-LoginStore.prototype._save = async function () {
+CredentialStore.prototype._save = async function () {
   await JSONFile.prototype._save.call(this);
-  // Notify tests that writes to the login store is complete.
+  // Notify tests that writes to the credential store is complete.
   Services.obs.notifyObservers(null, "password-storage-updated");
 
   if (this._options.backupTo) {
@@ -95,36 +95,36 @@ LoginStore.prototype._save = async function () {
 };
 
 /**
- * Delete logins backup file if the last saved login was removed using
- * removeLogin() or if all logins were removed at once using removeAllUserFacingLogins().
- * Note that if the user has a fxa key stored as a login, we just update the
- * backup to only store the key when the last saved user facing login is removed.
+ * Delete credentials backup file if the last saved credential was removed using
+ * removeCredential() or if all credentials were removed at once using removeAllUserFacingCredentials().
+ * Note that if the user has a fxa key stored as a credential, we just update the
+ * backup to only store the key when the last saved user facing credential is removed.
  */
-LoginStore.prototype._backupHandler = async function () {
-  const logins = this._data.logins;
-  // Return early if more than one login is stored because the backup won't need
+CredentialStore.prototype._backupHandler = async function () {
+  const credentials = this._data.credentials;
+  // Return early if more than one credential is stored because the backup won't need
   // updating in this case.
-  if (logins.length > 1) {
+  if (credentials.length > 1) {
     return;
   }
 
-  // If one login is stored and it's a fxa sync key, we update the backup to store the
+  // If one credential is stored and it's a fxa sync key, we update the backup to store the
   // key only.
   if (
-    logins.length &&
-    logins[0].hostname == lazy.FXA_PWDMGR_HOST &&
-    logins[0].httpRealm == lazy.FXA_PWDMGR_REALM
+    credentials.length &&
+    credentials[0].hostname == lazy.FXA_PWDMGR_HOST &&
+    credentials[0].httpRealm == lazy.FXA_PWDMGR_REALM
   ) {
     try {
       await IOUtils.copy(this.path, this._options.backupTo);
 
       // This notification is specifically sent out for a test.
-      Services.obs.notifyObservers(null, "logins-backup-updated");
+      Services.obs.notifyObservers(null, "credentials-backup-updated");
     } catch (ex) {
       console.error(ex);
     }
-  } else if (!logins.length) {
-    // If no logins are stored anymore, delete backup.
+  } else if (!credentials.length) {
+    // If no credentials are stored anymore, delete backup.
     await IOUtils.remove(this._options.backupTo, {
       ignoreAbsent: true,
     });
@@ -134,41 +134,41 @@ LoginStore.prototype._backupHandler = async function () {
 /**
  * Synchronously work on the data just loaded into memory.
  */
-LoginStore.prototype._dataPostProcessor = function (data) {
+CredentialStore.prototype._dataPostProcessor = function (data) {
   if (data.nextId === undefined) {
     data.nextId = 1;
   }
 
   // Create any arrays that are not present in the saved file.
-  if (!data.logins) {
-    data.logins = [];
+  if (!data.credentials) {
+    data.credentials = [];
   }
 
   if (!data.potentiallyVulnerablePasswords) {
     data.potentiallyVulnerablePasswords = [];
   }
 
-  if (!data.dismissedBreachAlertsByLoginGUID) {
-    data.dismissedBreachAlertsByLoginGUID = {};
+  if (!data.dismissedBreachAlertsByCredentialGUID) {
+    data.dismissedBreachAlertsByCredentialGUID = {};
   }
 
-  // sanitize dates in logins
+  // sanitize dates in credentials
   if (!("version" in data) || data.version < 3) {
     let dateProperties = ["timeCreated", "timeLastUsed", "timePasswordChanged"];
     let now = Date.now();
-    function getEarliestDate(login, defaultDate) {
+    function getEarliestDate(credential, defaultDate) {
       let earliestDate = dateProperties.reduce((earliest, pname) => {
-        let ts = login[pname];
+        let ts = credential[pname];
         return !ts ? earliest : Math.min(ts, earliest);
       }, defaultDate);
       return earliestDate;
     }
-    for (let login of data.logins) {
+    for (let credential of data.credentials) {
       for (let pname of dateProperties) {
         let earliestDate;
-        if (!login[pname] || login[pname] > MAX_DATE_MS) {
-          login[pname] =
-            earliestDate || (earliestDate = getEarliestDate(login, now));
+        if (!credential[pname] || credential[pname] > MAX_DATE_MS) {
+          credential[pname] =
+            earliestDate || (earliestDate = getEarliestDate(credential, now));
         }
       }
     }

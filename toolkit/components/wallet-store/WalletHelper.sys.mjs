@@ -3,20 +3,15 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /**
- * Contains functions shared by different Login Manager components.
+ * Contains functions shared by different Wallet Manager components.
  *
  * This JavaScript module exists in order to share code between the different
- * XPCOM components that constitute the Login Manager, including implementations
- * of nsILoginManager and nsILoginManagerStorage.
+ * XPCOM components that constitute the Wallet Manager, including implementations
+ * of nsIWalletManager and nsIWalletManagerStorage.
  */
 
-import { Logic } from "resource://gre/modules/LoginManager.shared.mjs";
+import { Logic } from "resource://gre/modules/WalletManager.shared.mjs";
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
-
-const lazy = {};
-ChromeUtils.defineESModuleGetters(lazy, {
-  OSKeyStore: "resource://gre/modules/OSKeyStore.sys.mjs",
-});
 
 export class ParentAutocompleteOption {
   icon;
@@ -38,42 +33,42 @@ export class ParentAutocompleteOption {
  * A helper class to deal with CSV import rows.
  */
 class ImportRowProcessor {
-  uniqueLoginIdentifiers = new Set();
+  uniqueWalletIdentifiers = new Set();
   originToRows = new Map();
   summary = [];
   mandatoryFields = ["origin", "password"];
 
   /**
-   * Validates if the login data contains a GUID that was already found in a previous row in the current import.
+   * Validates if the wallet data contains a GUID that was already found in a previous row in the current import.
    * If this is the case, the summary will be updated with an error.
-   * @param {object} loginData
-   *        An vanilla object for the login without any methods.
+   * @param {object} walletData
+   *        An vanilla object for the wallet without any methods.
    * @returns {boolean} True if there is an error, false otherwise.
    */
-  checkNonUniqueGuidError(loginData) {
-    if (loginData.guid) {
-      if (this.uniqueLoginIdentifiers.has(loginData.guid)) {
-        this.addLoginToSummary({ ...loginData }, "error");
+  checkNonUniqueGuidError(walletData) {
+    if (walletData.guid) {
+      if (this.uniqueWalletIdentifiers.has(walletData.guid)) {
+        this.addWalletToSummary({ ...walletData }, "error");
         return true;
       }
-      this.uniqueLoginIdentifiers.add(loginData.guid);
+      this.uniqueWalletIdentifiers.add(walletData.guid);
     }
     return false;
   }
 
   /**
-   * Validates if the login data contains invalid fields that are mandatory like origin and password.
+   * Validates if the wallet data contains invalid fields that are mandatory like origin and password.
    * If this is the case, the summary will be updated with an error.
-   * @param {object} loginData
-   *        An vanilla object for the login without any methods.
+   * @param {object} walletData
+   *        An vanilla object for the wallet without any methods.
    * @returns {boolean} True if there is an error, false otherwise.
    */
-  checkMissingMandatoryFieldsError(loginData) {
-    loginData.origin = LoginHelper.getLoginOrigin(loginData.origin);
+  checkMissingMandatoryFieldsError(walletData) {
+    walletData.origin = WalletHelper.getWalletOrigin(walletData.origin);
     for (let mandatoryField of this.mandatoryFields) {
-      if (!loginData[mandatoryField]) {
-        const missingFieldRow = this.addLoginToSummary(
-          { ...loginData },
+      if (!walletData[mandatoryField]) {
+        const missingFieldRow = this.addWalletToSummary(
+          { ...walletData },
           "error_missing_field"
         );
         missingFieldRow.field_name = mandatoryField;
@@ -88,44 +83,44 @@ class ImportRowProcessor {
    * If there are similar values but not identical, a new "modified" entry will be added to the summary.
    * If there are identical values, a new "no_change" entry will be added to the summary
    * If either of these is the case, it will return true.
-   * @param {object} loginData
-   *        An vanilla object for the login without any methods.
+   * @param {object} walletData
+   *        An vanilla object for the wallet without any methods.
    * @returns {boolean} True if the entry is similar or identical to another previously processed entry, false otherwise.
    */
-  async checkExistingEntry(loginData) {
-    if (loginData.guid) {
+  async checkExistingEntry(walletData) {
+    if (walletData.guid) {
       // First check for `guid` matches if it's set.
       // `guid` matches will allow every kind of update, including reverting
       // to older passwords which can be useful if the user wants to recover
       // an old password.
-      let existingLogins = await Services.logins.searchLoginsAsync({
-        guid: loginData.guid,
-        origin: loginData.origin, // Ignored outside of GV.
+      let existingWallets = await Services.wallets.searchWalletsAsync({
+        guid: walletData.guid,
+        origin: walletData.origin, // Ignored outside of GV.
       });
 
-      if (existingLogins.length) {
-        lazy.log.debug("maybeImportLogins: Found existing login with GUID.");
+      if (existingWallets.length) {
+        lazy.log.debug("maybeImportWallets: Found existing wallet with GUID.");
         // There should only be one `guid` match.
-        let existingLogin = existingLogins[0].QueryInterface(
-          Ci.nsILoginMetaInfo
+        let existingWallet = existingWallets[0].QueryInterface(
+          Ci.nsIWalletMetaInfo
         );
 
         if (
-          loginData.username !== existingLogin.username ||
-          loginData.password !== existingLogin.password ||
-          loginData.httpRealm !== existingLogin.httpRealm ||
-          loginData.formActionOrigin !== existingLogin.formActionOrigin ||
-          `${loginData.timeCreated}` !== `${existingLogin.timeCreated}` ||
-          `${loginData.timePasswordChanged}` !==
-            `${existingLogin.timePasswordChanged}`
+          walletData.username !== existingWallet.username ||
+          walletData.password !== existingWallet.password ||
+          walletData.httpRealm !== existingWallet.httpRealm ||
+          walletData.formActionOrigin !== existingWallet.formActionOrigin ||
+          `${walletData.timeCreated}` !== `${existingWallet.timeCreated}` ||
+          `${walletData.timePasswordChanged}` !==
+            `${existingWallet.timePasswordChanged}`
         ) {
-          // Use a property bag rather than an nsILoginInfo so we don't clobber
+          // Use a property bag rather than an nsIWalletInfo so we don't clobber
           // properties that the import source doesn't provide.
-          let propBag = LoginHelper.newPropertyBag(loginData);
-          this.addLoginToSummary({ ...existingLogin }, "modified", propBag);
+          let propBag = WalletHelper.newPropertyBag(walletData);
+          this.addWalletToSummary({ ...existingWallet }, "modified", propBag);
           return true;
         }
-        this.addLoginToSummary({ ...existingLogin }, "no_change");
+        this.addWalletToSummary({ ...existingWallet }, "no_change");
         return true;
       }
     }
@@ -134,27 +129,27 @@ class ImportRowProcessor {
 
   /**
    * Validates if there is a conflict with previous rows based on the origin.
-   * We need to check the logins that we've already decided to add, to see if this is a duplicate.
+   * We need to check the wallets that we've already decided to add, to see if this is a duplicate.
    * If this is the case, we mark this one as "no_change" in the summary and return true.
-   * @param {object} login
-   *        A login object.
+   * @param {object} wallet
+   *        A wallet object.
    * @returns {boolean} True if the entry is similar or identical to another previously processed entry, false otherwise.
    */
-  checkConflictingOriginWithPreviousRows(login) {
-    let rowsPerOrigin = this.originToRows.get(login.origin);
+  checkConflictingOriginWithPreviousRows(wallet) {
+    let rowsPerOrigin = this.originToRows.get(wallet.origin);
     if (rowsPerOrigin) {
       if (
         rowsPerOrigin.some(r =>
-          login.matches(r.login, false /* ignorePassword */)
+          wallet.matches(r.wallet, false /* ignorePassword */)
         )
       ) {
-        this.addLoginToSummary(login, "no_change");
+        this.addWalletToSummary(wallet, "no_change");
         return true;
       }
       for (let row of rowsPerOrigin) {
-        let newLogin = row.login;
-        if (login.username == newLogin.username) {
-          this.addLoginToSummary(login, "no_change");
+        let newWallet = row.wallet;
+        if (wallet.username == newWallet.username) {
+          this.addWalletToSummary(wallet, "no_change");
           return true;
         }
       }
@@ -163,78 +158,78 @@ class ImportRowProcessor {
   }
 
   /**
-   * Validates if there is a conflict with existing logins based on the origin.
+   * Validates if there is a conflict with existing wallets based on the origin.
    * If this is the case and there are some changes, we mark it as "modified" in the summary.
-   * If it matches an existing login without any extra modifications, we mark it as "no_change".
+   * If it matches an existing wallet without any extra modifications, we mark it as "no_change".
    * For both cases we return true.
-   * @param {object} login
-   *        A login object.
+   * @param {object} wallet
+   *        A wallet object.
    * @returns {boolean} True if the entry is similar or identical to another previously processed entry, false otherwise.
    */
-  async checkConflictingWithExistingLogins(login) {
+  async checkConflictingWithExistingWallets(wallet) {
     // While here we're passing formActionOrigin and httpRealm, they could be empty/null and get
-    // ignored in that case, leading to multiple logins for the same username.
-    let existingLogins = await Services.logins.searchLoginsAsync({
-      origin: login.origin,
-      formActionOrigin: login.formActionOrigin,
-      httpRealm: login.httpRealm,
+    // ignored in that case, leading to multiple wallets for the same username.
+    let existingWallets = await Services.wallets.searchWalletsAsync({
+      origin: wallet.origin,
+      formActionOrigin: wallet.formActionOrigin,
+      httpRealm: wallet.httpRealm,
     });
 
-    // Check for an existing login that matches *including* the password.
-    // If such a login exists, we do not need to add a new login.
+    // Check for an existing wallet that matches *including* the password.
+    // If such a wallet exists, we do not need to add a new wallet.
     if (
-      existingLogins.some(l => login.matches(l, false /* ignorePassword */))
+      existingWallets.some(l => wallet.matches(l, false /* ignorePassword */))
     ) {
-      this.addLoginToSummary(login, "no_change");
+      this.addWalletToSummary(wallet, "no_change");
       return true;
     }
-    // Now check for a login with the same username, where it may be that we have an
+    // Now check for a wallet with the same username, where it may be that we have an
     // updated password.
-    let foundMatchingLogin = false;
-    for (let existingLogin of existingLogins) {
-      if (login.username == existingLogin.username) {
-        foundMatchingLogin = true;
-        existingLogin.QueryInterface(Ci.nsILoginMetaInfo);
+    let foundMatchingWallet = false;
+    for (let existingWallet of existingWallets) {
+      if (wallet.username == existingWallet.username) {
+        foundMatchingWallet = true;
+        existingWallet.QueryInterface(Ci.nsIWalletMetaInfo);
         if (
-          (login.password != existingLogin.password) &
-          (login.timePasswordChanged > existingLogin.timePasswordChanged)
+          (wallet.password != existingWallet.password) &
+          (wallet.timePasswordChanged > existingWallet.timePasswordChanged)
         ) {
-          // if a login with the same username and different password already exists and it's older
+          // if a wallet with the same username and different password already exists and it's older
           // than the current one, update its password and timestamp.
           let propBag = Cc["@mozilla.org/hash-property-bag;1"].createInstance(
             Ci.nsIWritablePropertyBag
           );
-          propBag.setProperty("password", login.password);
-          propBag.setProperty("timePasswordChanged", login.timePasswordChanged);
-          this.addLoginToSummary({ ...existingLogin }, "modified", propBag);
+          propBag.setProperty("password", wallet.password);
+          propBag.setProperty("timePasswordChanged", wallet.timePasswordChanged);
+          this.addWalletToSummary({ ...existingWallet }, "modified", propBag);
           return true;
         }
       }
     }
-    // if the new login is an update or is older than an exiting login, don't add it.
-    if (foundMatchingLogin) {
-      this.addLoginToSummary(login, "no_change");
+    // if the new wallet is an update or is older than an exiting wallet, don't add it.
+    if (foundMatchingWallet) {
+      this.addWalletToSummary(wallet, "no_change");
       return true;
     }
     return false;
   }
 
   /**
-   * Validates if there are any invalid values using LoginHelper.checkLoginValues.
+   * Validates if there are any invalid values using WalletHelper.checkWalletValues.
    * If this is the case we mark it as "error" and return true.
-   * @param {object} login
-   *        A login object.
-   * @param {object} loginData
-   *        An vanilla object for the login without any methods.
+   * @param {object} wallet
+   *        A wallet object.
+   * @param {object} walletData
+   *        An vanilla object for the wallet without any methods.
    * @returns {boolean} True if there is a validation error we return true, false otherwise.
    */
-  checkLoginValuesError(login, loginData) {
+  checkWalletValuesError(wallet, walletData) {
     try {
-      // Ensure we only send checked logins through, since the validation is optimized
+      // Ensure we only send checked wallets through, since the validation is optimized
       // out from the bulk APIs below us.
-      LoginHelper.checkLoginValues(login);
+      WalletHelper.checkWalletValues(wallet);
     } catch (e) {
-      this.addLoginToSummary({ ...loginData }, "error");
+      this.addWalletToSummary({ ...walletData }, "error");
       console.error(e);
       return true;
     }
@@ -242,67 +237,67 @@ class ImportRowProcessor {
   }
 
   /**
-   * Creates a new login from loginData.
-   * @param {object} loginData
-   *        An vanilla object for the login without any methods.
-   * @returns {object} A login object.
+   * Creates a new wallet from walletData.
+   * @param {object} walletData
+   *        An vanilla object for the wallet without any methods.
+   * @returns {object} A wallet object.
    */
-  createNewLogin(loginData) {
-    let login = Cc["@mozilla.org/login-manager/loginInfo;1"].createInstance(
-      Ci.nsILoginInfo
+  createNewWallet(walletData) {
+    let wallet = Cc["@mozilla.org/wallet-manager/walletInfo;1"].createInstance(
+      Ci.nsIWalletInfo
     );
-    login.init(
-      loginData.origin,
-      loginData.formActionOrigin,
-      loginData.httpRealm,
-      loginData.username,
-      loginData.password,
-      loginData.usernameElement || "",
-      loginData.passwordElement || ""
+    wallet.init(
+      walletData.origin,
+      walletData.formActionOrigin,
+      walletData.httpRealm,
+      walletData.username,
+      walletData.password,
+      walletData.usernameElement || "",
+      walletData.passwordElement || ""
     );
 
-    login.QueryInterface(Ci.nsILoginMetaInfo);
-    login.timeCreated = loginData.timeCreated;
-    login.timeLastUsed = loginData.timeLastUsed || loginData.timeCreated;
-    login.timePasswordChanged =
-      loginData.timePasswordChanged || loginData.timeCreated;
-    login.timesUsed = loginData.timesUsed || 1;
-    login.guid = loginData.guid || null;
-    return login;
+    wallet.QueryInterface(Ci.nsIWalletMetaInfo);
+    wallet.timeCreated = walletData.timeCreated;
+    wallet.timeLastUsed = walletData.timeLastUsed || walletData.timeCreated;
+    wallet.timePasswordChanged =
+      walletData.timePasswordChanged || walletData.timeCreated;
+    wallet.timesUsed = walletData.timesUsed || 1;
+    wallet.guid = walletData.guid || null;
+    return wallet;
   }
 
   /**
-   * Cleans the action and realm field of the loginData.
-   * @param {object} loginData
-   *        An vanilla object for the login without any methods.
+   * Cleans the action and realm field of the walletData.
+   * @param {object} walletData
+   *        An vanilla object for the wallet without any methods.
    */
-  cleanupActionAndRealmFields(loginData) {
-    const cleanOrigin = loginData.formActionOrigin
-      ? LoginHelper.getLoginOrigin(loginData.formActionOrigin, true)
+  cleanupActionAndRealmFields(walletData) {
+    const cleanOrigin = walletData.formActionOrigin
+      ? WalletHelper.getWalletOrigin(walletData.formActionOrigin, true)
       : "";
-    loginData.formActionOrigin =
-      cleanOrigin || (typeof loginData.httpRealm == "string" ? null : "");
+    walletData.formActionOrigin =
+      cleanOrigin || (typeof walletData.httpRealm == "string" ? null : "");
 
-    loginData.httpRealm =
-      typeof loginData.httpRealm == "string" ? loginData.httpRealm : null;
+    walletData.httpRealm =
+      typeof walletData.httpRealm == "string" ? walletData.httpRealm : null;
   }
 
   /**
-   * Adds a login to the summary.
-   * @param {object} login
-   *        A login object.
+   * Adds a wallet to the summary.
+   * @param {object} wallet
+   *        A wallet object.
    * @param {string} result
    *        The result type. One of "added", "modified", "error", "error_invalid_origin", "error_invalid_password" or "no_change".
    * @param {object} propBag
    *        An optional parameter with the properties bag.
    * @returns {object} The row that was added.
    */
-  addLoginToSummary(login, result, propBag) {
-    let rows = this.originToRows.get(login.origin) || [];
+  addWalletToSummary(wallet, result, propBag) {
+    let rows = this.originToRows.get(wallet.origin) || [];
     if (rows.length === 0) {
-      this.originToRows.set(login.origin, rows);
+      this.originToRows.set(wallet.origin, rows);
     }
-    const newSummaryRow = { result, login, propBag };
+    const newSummaryRow = { result, wallet, propBag };
     rows.push(newSummaryRow);
     this.summary.push(newSummaryRow);
     return newSummaryRow;
@@ -322,13 +317,13 @@ class ImportRowProcessor {
         currentRow.result === "no_change"
       ) {
         const originAndUser =
-          currentRow.login.origin + currentRow.login.username;
+          currentRow.wallet.origin + currentRow.wallet.username;
         let lastTimeChangedRow = originUserToRowMap.get(originAndUser);
         if (lastTimeChangedRow) {
           if (
-            (currentRow.login.password != lastTimeChangedRow.login.password) &
-            (currentRow.login.timePasswordChanged >
-              lastTimeChangedRow.login.timePasswordChanged)
+            (currentRow.wallet.password != lastTimeChangedRow.wallet.password) &
+            (currentRow.wallet.timePasswordChanged >
+              lastTimeChangedRow.wallet.timePasswordChanged)
           ) {
             lastTimeChangedRow.result = "no_change";
             currentRow.result = "added";
@@ -345,18 +340,18 @@ class ImportRowProcessor {
    * Iterates over all then rows where more than two match the same origin. It mutates the internal state of the processor.
    * It makes sure that if the `timePasswordChanged` field is present it will be used to decide if it's a "no_change" or "added".
    * The entry with the oldest `timePasswordChanged` will be "added", the rest will be "no_change".
-   * @returns {Object[]} An entry for each processed row containing how the row was processed and the login data.
+   * @returns {Object[]} An entry for each processed row containing how the row was processed and the wallet data.
    */
-  async processLoginsAndBuildSummary() {
+  async processWalletsAndBuildSummary() {
     this.markLastTimePasswordChangedAsModified();
     for (let summaryRow of this.summary) {
       try {
         if (summaryRow.result === "added") {
-          summaryRow.login = await Services.logins.addLoginAsync(
-            summaryRow.login
+          summaryRow.wallet = await Services.wallets.addWalletAsync(
+            summaryRow.wallet
           );
         } else if (summaryRow.result === "modified") {
-          Services.logins.modifyLogin(summaryRow.login, summaryRow.propBag);
+          Services.wallets.modifyWallet(summaryRow.wallet, summaryRow.propBag);
         }
       } catch (e) {
         console.error(e);
@@ -368,9 +363,9 @@ class ImportRowProcessor {
 }
 
 /**
- * Contains functions shared by different Login Manager components.
+ * Contains functions shared by different Wallet Manager components.
  */
-export const LoginHelper = {
+export const WalletHelper = {
   debug: null,
   enabled: null,
   storageEnabled: null,
@@ -555,11 +550,11 @@ export const LoginHelper = {
    * Due to the way the signons2.txt file was formatted, we needed to make
    * sure certain field values or characters do not cause the file to
    * be parsed incorrectly. These characters can cause problems in other
-   * formats/languages too so reject logins that may not be stored correctly.
+   * formats/languages too so reject wallets that may not be stored correctly.
    *
    * @throws String with English message in case validation failed.
    */
-  checkLoginValues(aLogin) {
+  checkWalletValues(aWallet) {
     function badCharacterPresent(l, c) {
       return (
         (l.formActionOrigin && l.formActionOrigin.includes(c)) ||
@@ -572,11 +567,11 @@ export const LoginHelper = {
 
     // Nulls are invalid, as they don't round-trip well.
     // Mostly not a formatting problem, although ".\0" can be quirky.
-    if (badCharacterPresent(aLogin, "\0")) {
-      throw new Error("login values can't contain nulls");
+    if (badCharacterPresent(aWallet, "\0")) {
+      throw new Error("wallet values can't contain nulls");
     }
 
-    if (!aLogin.password || typeof aLogin.password != "string") {
+    if (!aWallet.password || typeof aWallet.password != "string") {
       throw new Error("passwords must be non-empty strings");
     }
 
@@ -584,27 +579,27 @@ export const LoginHelper = {
     // values, but nsISecretDecoderRing doesn't use nsStrings, so the
     // nulls cause truncation. Check for them here just to avoid
     // unexpected round-trip surprises.
-    if (aLogin.username.includes("\0") || aLogin.password.includes("\0")) {
-      throw new Error("login values can't contain nulls");
+    if (aWallet.username.includes("\0") || aWallet.password.includes("\0")) {
+      throw new Error("wallet values can't contain nulls");
     }
 
     // Newlines are invalid for any field stored as plaintext.
     if (
-      badCharacterPresent(aLogin, "\r") ||
-      badCharacterPresent(aLogin, "\n")
+      badCharacterPresent(aWallet, "\r") ||
+      badCharacterPresent(aWallet, "\n")
     ) {
-      throw new Error("login values can't contain newlines");
+      throw new Error("wallet values can't contain newlines");
     }
 
     // A line with just a "." can have special meaning.
-    if (aLogin.usernameField == "." || aLogin.formActionOrigin == ".") {
-      throw new Error("login values can't be periods");
+    if (aWallet.usernameField == "." || aWallet.formActionOrigin == ".") {
+      throw new Error("wallet values can't be periods");
     }
 
     // An origin with "\ \(" won't roundtrip.
     // eg host="foo (", realm="bar" --> "foo ( (bar)"
     // vs host="foo", realm=" (bar" --> "foo ( (bar)"
-    if (aLogin.origin.includes(" (")) {
+    if (aWallet.origin.includes(" (")) {
       throw new Error("bad parens in origin");
     }
   },
@@ -636,14 +631,14 @@ export const LoginHelper = {
 
   /**
    * Helper to avoid the property bags when calling
-   * Services.logins.searchLogins from JS.
-   * @deprecated Use Services.logins.searchLoginsAsync instead.
+   * Services.wallets.searchWallets from JS.
+   * @deprecated Use Services.wallets.searchWalletsAsync instead.
    *
    * @param {Object} aSearchOptions - A regular JS object to copy to a property bag before searching
-   * @return {nsILoginInfo[]} - The result of calling searchLogins.
+   * @return {nsIWalletInfo[]} - The result of calling searchWallets.
    */
-  searchLoginsWithObject(aSearchOptions) {
-    return Services.logins.searchLogins(this.newPropertyBag(aSearchOptions));
+  searchWalletsWithObject(aSearchOptions) {
+    return Services.wallets.searchWallets(this.newPropertyBag(aSearchOptions));
   },
 
   /**
@@ -665,7 +660,7 @@ export const LoginHelper = {
    * Get the parts of the URL we want for identification.
    * Strip out things like the userPass portion and handle javascript:.
    */
-  getLoginOrigin(uriString, allowJS = false) {
+  getWalletOrigin(uriString, allowJS = false) {
     try {
       const mozProxyRegex = /^moz-proxy:\/\//i;
       const isMozProxy = !!uriString.match(mozProxyRegex);
@@ -699,22 +694,22 @@ export const LoginHelper = {
       uriString = form.baseURI;
     }
 
-    return this.getLoginOrigin(uriString, true);
+    return this.getWalletOrigin(uriString, true);
   },
 
   /**
-   * @param {String} aLoginOrigin - An origin value from a stored login's
+   * @param {String} aWalletOrigin - An origin value from a stored wallet's
    *                                origin or formActionOrigin properties.
    * @param {String} aSearchOrigin - The origin that was are looking to match
-   *                                 with aLoginOrigin. This would normally come
+   *                                 with aWalletOrigin. This would normally come
    *                                 from a form or page that we are considering.
-   * @param {nsILoginFindOptions} aOptions - Options to affect whether the origin
-   *                                         from the login (aLoginOrigin) is a
+   * @param {nsIWalletFindOptions} aOptions - Options to affect whether the origin
+   *                                         from the wallet (aWalletOrigin) is a
    *                                         match for the origin we're looking
    *                                         for (aSearchOrigin).
    */
   isOriginMatching(
-    aLoginOrigin,
+    aWalletOrigin,
     aSearchOrigin,
     aOptions = {
       schemeUpgrades: false,
@@ -724,7 +719,7 @@ export const LoginHelper = {
       relatedRealms: [],
     }
   ) {
-    if (aLoginOrigin == aSearchOrigin) {
+    if (aWalletOrigin == aSearchOrigin) {
       return true;
     }
 
@@ -732,28 +727,28 @@ export const LoginHelper = {
       return false;
     }
 
-    if (aOptions.acceptWildcardMatch && aLoginOrigin == "") {
+    if (aOptions.acceptWildcardMatch && aWalletOrigin == "") {
       return true;
     }
 
-    // We can only match logins now if either of these flags are true, so
+    // We can only match wallets now if either of these flags are true, so
     // avoid doing the work of constructing URL objects if neither is true.
     if (!aOptions.acceptDifferentSubdomains && !aOptions.schemeUpgrades) {
       return false;
     }
 
     try {
-      let loginURI = Services.io.newURI(aLoginOrigin);
+      let walletURI = Services.io.newURI(aWalletOrigin);
       let searchURI = Services.io.newURI(aSearchOrigin);
       let schemeMatches =
-        loginURI.scheme == "http" && searchURI.scheme == "https";
+        walletURI.scheme == "http" && searchURI.scheme == "https";
 
       if (aOptions.acceptDifferentSubdomains) {
-        let loginBaseDomain = Services.eTLD.getBaseDomain(loginURI);
+        let walletBaseDomain = Services.eTLD.getBaseDomain(walletURI);
         let searchBaseDomain = Services.eTLD.getBaseDomain(searchURI);
         if (
-          loginBaseDomain == searchBaseDomain &&
-          (loginURI.scheme == searchURI.scheme ||
+          walletBaseDomain == searchBaseDomain &&
+          (walletURI.scheme == searchURI.scheme ||
             (aOptions.schemeUpgrades && schemeMatches))
         ) {
           return true;
@@ -761,11 +756,11 @@ export const LoginHelper = {
         if (
           aOptions.acceptRelatedRealms &&
           aOptions.relatedRealms.length &&
-          (loginURI.scheme == searchURI.scheme ||
+          (walletURI.scheme == searchURI.scheme ||
             (aOptions.schemeUpgrades && schemeMatches))
         ) {
           for (let relatedOrigin of aOptions.relatedRealms) {
-            if (Services.eTLD.hasRootDomain(loginURI.host, relatedOrigin)) {
+            if (Services.eTLD.hasRootDomain(walletURI.host, relatedOrigin)) {
               return true;
             }
           }
@@ -774,9 +769,9 @@ export const LoginHelper = {
 
       if (
         aOptions.schemeUpgrades &&
-        loginURI.host == searchURI.host &&
+        walletURI.host == searchURI.host &&
         schemeMatches &&
-        loginURI.port == searchURI.port
+        walletURI.port == searchURI.port
       ) {
         return true;
       }
@@ -789,47 +784,47 @@ export const LoginHelper = {
     return false;
   },
 
-  doLoginsMatch(
-    aLogin1,
-    aLogin2,
+  doWalletsMatch(
+    aWallet1,
+    aWallet2,
     { ignorePassword = false, ignoreSchemes = false }
   ) {
     if (
-      aLogin1.httpRealm != aLogin2.httpRealm ||
-      aLogin1.username != aLogin2.username
+      aWallet1.httpRealm != aWallet2.httpRealm ||
+      aWallet1.username != aWallet2.username
     ) {
       return false;
     }
 
-    if (!ignorePassword && aLogin1.password != aLogin2.password) {
+    if (!ignorePassword && aWallet1.password != aWallet2.password) {
       return false;
     }
 
     if (ignoreSchemes) {
-      let login1HostPort = this.maybeGetHostPortForURL(aLogin1.origin);
-      let login2HostPort = this.maybeGetHostPortForURL(aLogin2.origin);
-      if (login1HostPort != login2HostPort) {
+      let wallet1HostPort = this.maybeGetHostPortForURL(aWallet1.origin);
+      let wallet2HostPort = this.maybeGetHostPortForURL(aWallet2.origin);
+      if (wallet1HostPort != wallet2HostPort) {
         return false;
       }
 
       if (
-        aLogin1.formActionOrigin != "" &&
-        aLogin2.formActionOrigin != "" &&
-        this.maybeGetHostPortForURL(aLogin1.formActionOrigin) !=
-          this.maybeGetHostPortForURL(aLogin2.formActionOrigin)
+        aWallet1.formActionOrigin != "" &&
+        aWallet2.formActionOrigin != "" &&
+        this.maybeGetHostPortForURL(aWallet1.formActionOrigin) !=
+          this.maybeGetHostPortForURL(aWallet2.formActionOrigin)
       ) {
         return false;
       }
     } else {
-      if (aLogin1.origin != aLogin2.origin) {
+      if (aWallet1.origin != aWallet2.origin) {
         return false;
       }
 
       // If either formActionOrigin is blank (but not null), then match.
       if (
-        aLogin1.formActionOrigin != "" &&
-        aLogin2.formActionOrigin != "" &&
-        aLogin1.formActionOrigin != aLogin2.formActionOrigin
+        aWallet1.formActionOrigin != "" &&
+        aWallet2.formActionOrigin != "" &&
+        aWallet1.formActionOrigin != aWallet2.formActionOrigin
       ) {
         return false;
       }
@@ -841,68 +836,68 @@ export const LoginHelper = {
   },
 
   /**
-   * Creates a new login object that results by modifying the given object with
+   * Creates a new wallet object that results by modifying the given object with
    * the provided data.
    *
-   * @param {nsILoginInfo} aOldStoredLogin
-   *        Existing login object to modify.
-   * @param {nsILoginInfo|nsIProperyBag} aNewLoginData
-   *        The new login values, either as an nsILoginInfo or nsIProperyBag.
+   * @param {nsIWalletInfo} aOldStoredWallet
+   *        Existing wallet object to modify.
+   * @param {nsIWalletInfo|nsIProperyBag} aNewWalletData
+   *        The new wallet values, either as an nsIWalletInfo or nsIProperyBag.
    *
-   * @return {nsILoginInfo} The newly created nsILoginInfo object.
+   * @return {nsIWalletInfo} The newly created nsIWalletInfo object.
    *
    * @throws {Error} With English message in case validation failed.
    */
-  buildModifiedLogin(aOldStoredLogin, aNewLoginData) {
+  buildModifiedWallet(aOldStoredWallet, aNewWalletData) {
     function bagHasProperty(aPropName) {
       try {
-        aNewLoginData.getProperty(aPropName);
+        aNewWalletData.getProperty(aPropName);
         return true;
       } catch (ex) {}
       return false;
     }
 
-    aOldStoredLogin.QueryInterface(Ci.nsILoginMetaInfo);
+    aOldStoredWallet.QueryInterface(Ci.nsIWalletMetaInfo);
 
-    let newLogin;
-    if (aNewLoginData instanceof Ci.nsILoginInfo) {
-      // Clone the existing login to get its nsILoginMetaInfo, then init it
-      // with the replacement nsILoginInfo data from the new login.
-      newLogin = aOldStoredLogin.clone();
-      newLogin.init(
-        aNewLoginData.origin,
-        aNewLoginData.formActionOrigin,
-        aNewLoginData.httpRealm,
-        aNewLoginData.username,
-        aNewLoginData.password,
-        aNewLoginData.usernameField,
-        aNewLoginData.passwordField
+    let newWallet;
+    if (aNewWalletData instanceof Ci.nsIWalletInfo) {
+      // Clone the existing wallet to get its nsIWalletMetaInfo, then init it
+      // with the replacement nsIWalletInfo data from the new wallet.
+      newWallet = aOldStoredWallet.clone();
+      newWallet.init(
+        aNewWalletData.origin,
+        aNewWalletData.formActionOrigin,
+        aNewWalletData.httpRealm,
+        aNewWalletData.username,
+        aNewWalletData.password,
+        aNewWalletData.usernameField,
+        aNewWalletData.passwordField
       );
-      newLogin.unknownFields = aNewLoginData.unknownFields;
-      newLogin.QueryInterface(Ci.nsILoginMetaInfo);
+      newWallet.unknownFields = aNewWalletData.unknownFields;
+      newWallet.QueryInterface(Ci.nsIWalletMetaInfo);
 
       // Automatically update metainfo when password is changed.
-      if (newLogin.password != aOldStoredLogin.password) {
-        newLogin.timePasswordChanged = Date.now();
+      if (newWallet.password != aOldStoredWallet.password) {
+        newWallet.timePasswordChanged = Date.now();
       }
-    } else if (aNewLoginData instanceof Ci.nsIPropertyBag) {
-      // Clone the existing login, along with all its properties.
-      newLogin = aOldStoredLogin.clone();
-      newLogin.QueryInterface(Ci.nsILoginMetaInfo);
+    } else if (aNewWalletData instanceof Ci.nsIPropertyBag) {
+      // Clone the existing wallet, along with all its properties.
+      newWallet = aOldStoredWallet.clone();
+      newWallet.QueryInterface(Ci.nsIWalletMetaInfo);
 
       // Automatically update metainfo when password is changed.
       // (Done before the main property updates, lest the caller be
       // explicitly updating both .password and .timePasswordChanged)
       if (bagHasProperty("password")) {
-        let newPassword = aNewLoginData.getProperty("password");
-        if (newPassword != aOldStoredLogin.password) {
-          newLogin.timePasswordChanged = Date.now();
+        let newPassword = aNewWalletData.getProperty("password");
+        if (newPassword != aOldStoredWallet.password) {
+          newWallet.timePasswordChanged = Date.now();
         }
       }
 
-      for (let prop of aNewLoginData.enumerator) {
+      for (let prop of aNewWalletData.enumerator) {
         switch (prop.name) {
-          // nsILoginInfo (fall through)
+          // nsIWalletInfo (fall through)
           case "origin":
           case "httpRealm":
           case "formActionOrigin":
@@ -911,18 +906,18 @@ export const LoginHelper = {
           case "usernameField":
           case "passwordField":
           case "unknownFields":
-          // nsILoginMetaInfo (fall through)
+          // nsIWalletMetaInfo (fall through)
           case "guid":
           case "timeCreated":
           case "timeLastUsed":
           case "timePasswordChanged":
           case "timesUsed":
-            newLogin[prop.name] = prop.value;
+            newWallet[prop.name] = prop.value;
             break;
 
           // Fake property, allows easy incrementing.
           case "timesUsedIncrement":
-            newLogin.timesUsed += prop.value;
+            newWallet.timesUsed += prop.value;
             break;
 
           // Fail if caller requests setting an unknown property.
@@ -931,79 +926,79 @@ export const LoginHelper = {
         }
       }
     } else {
-      throw new Error("newLoginData needs an expected interface!");
+      throw new Error("newWalletData needs an expected interface!");
     }
 
-    // Sanity check the login
-    if (newLogin.origin == null || !newLogin.origin.length) {
-      throw new Error("Can't add a login with a null or empty origin.");
+    // Sanity check the wallet
+    if (newWallet.origin == null || !newWallet.origin.length) {
+      throw new Error("Can't add a wallet with a null or empty origin.");
     }
 
-    // For logins w/o a username, set to "", not null.
-    if (newLogin.username == null) {
-      throw new Error("Can't add a login with a null username.");
+    // For wallets w/o a username, set to "", not null.
+    if (newWallet.username == null) {
+      throw new Error("Can't add a wallet with a null username.");
     }
 
-    if (newLogin.password == null || !newLogin.password.length) {
-      throw new Error("Can't add a login with a null or empty password.");
+    if (newWallet.password == null || !newWallet.password.length) {
+      throw new Error("Can't add a wallet with a null or empty password.");
     }
 
-    if (newLogin.formActionOrigin || newLogin.formActionOrigin == "") {
+    if (newWallet.formActionOrigin || newWallet.formActionOrigin == "") {
       // We have a form submit URL. Can't have a HTTP realm.
-      if (newLogin.httpRealm != null) {
+      if (newWallet.httpRealm != null) {
         throw new Error(
-          "Can't add a login with both a httpRealm and formActionOrigin."
+          "Can't add a wallet with both a httpRealm and formActionOrigin."
         );
       }
-    } else if (newLogin.httpRealm) {
+    } else if (newWallet.httpRealm) {
       // We have a HTTP realm. Can't have a form submit URL.
-      if (newLogin.formActionOrigin != null) {
+      if (newWallet.formActionOrigin != null) {
         throw new Error(
-          "Can't add a login with both a httpRealm and formActionOrigin."
+          "Can't add a wallet with both a httpRealm and formActionOrigin."
         );
       }
     } else {
       // Need one or the other!
       throw new Error(
-        "Can't add a login without a httpRealm or formActionOrigin."
+        "Can't add a wallet without a httpRealm or formActionOrigin."
       );
     }
 
     // Throws if there are bogus values.
-    this.checkLoginValues(newLogin);
+    this.checkWalletValues(newWallet);
 
-    return newLogin;
+    return newWallet;
   },
 
   /**
-   * Remove http: logins when there is an https: login with the same username and hostPort.
+   * Remove http: wallets when there is an https: wallet with the same username and hostPort.
    * Sort order is preserved.
    *
-   * @param {nsILoginInfo[]} logins
-   *        A list of logins we want to process for shadowing.
-   * @returns {nsILoginInfo[]} A subset of of the passed logins.
+   * @param {nsIWalletInfo[]} wallets
+   *        A list of wallets we want to process for shadowing.
+   * @returns {nsIWalletInfo[]} A subset of of the passed wallets.
    */
-  shadowHTTPLogins(logins) {
+  shadowHTTPWallets(wallets) {
     /**
-     * Map a (hostPort, username) to a boolean indicating whether `logins`
-     * contains an https: login for that combo.
+     * Map a (hostPort, username) to a boolean indicating whether `wallets`
+     * contains an https: wallet for that combo.
      */
     let hasHTTPSByHostPortUsername = new Map();
-    for (let login of logins) {
-      let key = this.getUniqueKeyForLogin(login, ["hostPort", "username"]);
-      let hasHTTPSlogin = hasHTTPSByHostPortUsername.get(key) || false;
-      let loginURI = Services.io.newURI(login.origin);
+    for (let wallet of wallets) {
+      let key = this.getUniqueKeyForWallet(wallet, ["hostPort", "username"]);
+      let hasHTTPSwallet = hasHTTPSByHostPortUsername.get(key) || false;
+      let walletURI = Services.io.newURI(wallet.origin);
       hasHTTPSByHostPortUsername.set(
         key,
-        loginURI.scheme == "https" || hasHTTPSlogin
+        walletURI.scheme == "https" || hasHTTPSwallet
       );
     }
 
-    return logins.filter(login => {
-      let key = this.getUniqueKeyForLogin(login, ["hostPort", "username"]);
-      let loginURI = Services.io.newURI(login.origin);
-      if (loginURI.scheme == "http" && hasHTTPSByHostPortUsername.get(key)) {
-        // If this is an http: login and we have an https: login for the
+    return wallets.filter(wallet => {
+      let key = this.getUniqueKeyForWallet(wallet, ["hostPort", "username"]);
+      let walletURI = Services.io.newURI(wallet.origin);
+      if (walletURI.scheme == "http" && hasHTTPSByHostPortUsername.get(key)) {
+        // If this is an http: wallet and we have an https: wallet for the
         // (hostPort, username) combo then remove it.
         return false;
       }
@@ -1012,19 +1007,19 @@ export const LoginHelper = {
   },
 
   /**
-   * Generate a unique key string from a login.
-   * @param {nsILoginInfo} login
-   * @param {string[]} uniqueKeys containing nsILoginInfo attribute names or "hostPort"
+   * Generate a unique key string from a wallet.
+   * @param {nsIWalletInfo} wallet
+   * @param {string[]} uniqueKeys containing nsIWalletInfo attribute names or "hostPort"
    * @returns {string} to use as a key in a Map
    */
-  getUniqueKeyForLogin(login, uniqueKeys) {
+  getUniqueKeyForWallet(wallet, uniqueKeys) {
     const KEY_DELIMITER = ":";
     return uniqueKeys.reduce((prev, key) => {
       let val = null;
       if (key == "hostPort") {
-        val = Services.io.newURI(login.origin).hostPort;
+        val = Services.io.newURI(wallet.origin).hostPort;
       } else {
-        val = login[key];
+        val = wallet[key];
       }
 
       return prev + KEY_DELIMITER + val;
@@ -1032,32 +1027,32 @@ export const LoginHelper = {
   },
 
   /**
-   * Removes duplicates from a list of logins while preserving the sort order.
+   * Removes duplicates from a list of wallets while preserving the sort order.
    *
-   * @param {nsILoginInfo[]} logins
-   *        A list of logins we want to deduplicate.
+   * @param {nsIWalletInfo[]} wallets
+   *        A list of wallets we want to deduplicate.
    * @param {string[]} [uniqueKeys = ["username", "password"]]
-   *        A list of login attributes to use as unique keys for the deduplication.
+   *        A list of wallet attributes to use as unique keys for the deduplication.
    * @param {string[]} [resolveBy = ["timeLastUsed"]]
    *        Ordered array of keyword strings used to decide which of the
-   *        duplicates should be used. "scheme" would prefer the login that has
-   *        a scheme matching `preferredOrigin`'s if there are two logins with
+   *        duplicates should be used. "scheme" would prefer the wallet that has
+   *        a scheme matching `preferredOrigin`'s if there are two wallets with
    *        the same `uniqueKeys`. The default preference to distinguish two
-   *        logins is `timeLastUsed`. If there is no preference between two
-   *        logins, the first one found wins.
+   *        wallets is `timeLastUsed`. If there is no preference between two
+   *        wallets, the first one found wins.
    * @param {string} [preferredOrigin = undefined]
-   *        String representing the origin to use for preferring one login over
+   *        String representing the origin to use for preferring one wallet over
    *        another when they are dupes. This is used with "scheme" for
    *        `resolveBy` so the scheme from this origin will be preferred.
    * @param {string} [preferredFormActionOrigin = undefined]
-   *        String representing the action origin to use for preferring one login over
+   *        String representing the action origin to use for preferring one wallet over
    *        another when they are dupes. This is used with "actionOrigin" for
    *        `resolveBy` so the scheme from this action origin will be preferred.
    *
-   * @returns {nsILoginInfo[]} list of unique logins.
+   * @returns {nsIWalletInfo[]} list of unique wallets.
    */
-  dedupeLogins(
-    logins,
+  dedupeWallets(
+    wallets,
     uniqueKeys = ["username", "password"],
     resolveBy = ["timeLastUsed"],
     preferredOrigin = undefined,
@@ -1066,13 +1061,13 @@ export const LoginHelper = {
     if (!preferredOrigin) {
       if (resolveBy.includes("scheme")) {
         throw new Error(
-          "dedupeLogins: `preferredOrigin` is required in order to " +
+          "dedupeWallets: `preferredOrigin` is required in order to " +
             "prefer schemes which match it."
         );
       }
       if (resolveBy.includes("subdomain")) {
         throw new Error(
-          "dedupeLogins: `preferredOrigin` is required in order to " +
+          "dedupeWallets: `preferredOrigin` is required in order to " +
             "prefer subdomains which match it."
         );
       }
@@ -1093,19 +1088,19 @@ export const LoginHelper = {
       );
     }
 
-    // We use a Map to easily lookup logins by their unique keys.
-    let loginsByKeys = new Map();
+    // We use a Map to easily lookup wallets by their unique keys.
+    let walletsByKeys = new Map();
 
     /**
-     * @return {bool} whether `login` is preferred over its duplicate (considering `uniqueKeys`)
-     *                `existingLogin`.
+     * @return {bool} whether `wallet` is preferred over its duplicate (considering `uniqueKeys`)
+     *                `existingWallet`.
      *
-     * `resolveBy` is a sorted array so we can return true the first time `login` is preferred
-     * over the existingLogin.
+     * `resolveBy` is a sorted array so we can return true the first time `wallet` is preferred
+     * over the existingWallet.
      */
-    function isLoginPreferred(existingLogin, login) {
+    function isWalletPreferred(existingWallet, wallet) {
       if (!resolveBy || !resolveBy.length) {
-        // If there is no preference, prefer the existing login.
+        // If there is no preference, prefer the existing wallet.
         return false;
       }
 
@@ -1116,15 +1111,15 @@ export const LoginHelper = {
               break;
             }
             if (
-              LoginHelper.isOriginMatching(
-                existingLogin.formActionOrigin,
+              WalletHelper.isOriginMatching(
+                existingWallet.formActionOrigin,
                 preferredFormActionOrigin,
-                { schemeUpgrades: LoginHelper.schemeUpgrades }
+                { schemeUpgrades: WalletHelper.schemeUpgrades }
               ) &&
-              !LoginHelper.isOriginMatching(
-                login.formActionOrigin,
+              !WalletHelper.isOriginMatching(
+                wallet.formActionOrigin,
                 preferredFormActionOrigin,
-                { schemeUpgrades: LoginHelper.schemeUpgrades }
+                { schemeUpgrades: WalletHelper.schemeUpgrades }
               )
             ) {
               return false;
@@ -1138,25 +1133,25 @@ export const LoginHelper = {
 
             try {
               // Only `origin` is currently considered
-              let existingLoginURI = Services.io.newURI(existingLogin.origin);
-              let loginURI = Services.io.newURI(login.origin);
-              // If the schemes of the two logins are the same or neither match the
+              let existingWalletURI = Services.io.newURI(existingWallet.origin);
+              let walletURI = Services.io.newURI(wallet.origin);
+              // If the schemes of the two wallets are the same or neither match the
               // preferredOriginScheme then we have no preference and look at the next resolveBy.
               if (
-                loginURI.scheme == existingLoginURI.scheme ||
-                (loginURI.scheme != preferredOriginScheme &&
-                  existingLoginURI.scheme != preferredOriginScheme)
+                walletURI.scheme == existingWalletURI.scheme ||
+                (walletURI.scheme != preferredOriginScheme &&
+                  existingWalletURI.scheme != preferredOriginScheme)
               ) {
                 break;
               }
 
-              return loginURI.scheme == preferredOriginScheme;
+              return walletURI.scheme == preferredOriginScheme;
             } catch (e) {
               // Some URLs aren't valid nsIURI (e.g. chrome://FirefoxAccounts)
               lazy.log.debug(
-                "dedupeLogins/shouldReplaceExisting: Error comparing schemes:",
-                existingLogin.origin,
-                login.origin,
+                "dedupeWallets/shouldReplaceExisting: Error comparing schemes:",
+                existingWallet.origin,
+                wallet.origin,
                 "preferredOrigin:",
                 preferredOrigin,
                 e.name
@@ -1165,27 +1160,27 @@ export const LoginHelper = {
             break;
           }
           case "subdomain": {
-            // Replace the existing login only if the new login is an exact match on the host.
-            let existingLoginURI = Services.io.newURI(existingLogin.origin);
-            let newLoginURI = Services.io.newURI(login.origin);
+            // Replace the existing wallet only if the new wallet is an exact match on the host.
+            let existingWalletURI = Services.io.newURI(existingWallet.origin);
+            let newWalletURI = Services.io.newURI(wallet.origin);
             let preferredOriginURI = Services.io.newURI(preferredOrigin);
             if (
-              existingLoginURI.hostPort != preferredOriginURI.hostPort &&
-              newLoginURI.hostPort == preferredOriginURI.hostPort
+              existingWalletURI.hostPort != preferredOriginURI.hostPort &&
+              newWalletURI.hostPort == preferredOriginURI.hostPort
             ) {
               return true;
             }
             if (
-              existingLoginURI.host != preferredOriginURI.host &&
-              newLoginURI.host == preferredOriginURI.host
+              existingWalletURI.host != preferredOriginURI.host &&
+              newWalletURI.host == preferredOriginURI.host
             ) {
               return true;
             }
-            // if the existing login host *is* a match and the new one isn't
+            // if the existing wallet host *is* a match and the new one isn't
             // we explicitly want to keep the existing one
             if (
-              existingLoginURI.host == preferredOriginURI.host &&
-              newLoginURI.host != preferredOriginURI.host
+              existingWalletURI.host == preferredOriginURI.host &&
+              newWalletURI.host != preferredOriginURI.host
             ) {
               return false;
             }
@@ -1193,22 +1188,22 @@ export const LoginHelper = {
           }
           case "timeLastUsed":
           case "timePasswordChanged": {
-            // If we find a more recent login for the same key, replace the existing one.
-            let loginDate = login.QueryInterface(Ci.nsILoginMetaInfo)[
+            // If we find a more recent wallet for the same key, replace the existing one.
+            let walletDate = wallet.QueryInterface(Ci.nsIWalletMetaInfo)[
               preference
             ];
-            let storedLoginDate = existingLogin.QueryInterface(
-              Ci.nsILoginMetaInfo
+            let storedWalletDate = existingWallet.QueryInterface(
+              Ci.nsIWalletMetaInfo
             )[preference];
-            if (loginDate == storedLoginDate) {
+            if (walletDate == storedWalletDate) {
               break;
             }
 
-            return loginDate > storedLoginDate;
+            return walletDate > storedWalletDate;
           }
           default: {
             throw new Error(
-              "dedupeLogins: Invalid resolveBy preference: " + preference
+              "dedupeWallets: Invalid resolveBy preference: " + preference
             );
           }
         }
@@ -1217,20 +1212,20 @@ export const LoginHelper = {
       return false;
     }
 
-    for (let login of logins) {
-      let key = this.getUniqueKeyForLogin(login, uniqueKeys);
+    for (let wallet of wallets) {
+      let key = this.getUniqueKeyForWallet(wallet, uniqueKeys);
 
-      if (loginsByKeys.has(key)) {
-        if (!isLoginPreferred(loginsByKeys.get(key), login)) {
-          // If there is no preference for the new login, use the existing one.
+      if (walletsByKeys.has(key)) {
+        if (!isWalletPreferred(walletsByKeys.get(key), wallet)) {
+          // If there is no preference for the new wallet, use the existing one.
           continue;
         }
       }
-      loginsByKeys.set(key, login);
+      walletsByKeys.set(key, wallet);
     }
 
     // Return the map values in the form of an array.
-    return [...loginsByKeys.values()];
+    return [...walletsByKeys.values()];
   },
 
   /**
@@ -1242,21 +1237,21 @@ export const LoginHelper = {
    * @param {object?} args
    *                  params for opening the password manager
    * @param {string} [args.filterString=""]
-   *                 the domain (not origin) to pass to the login manager dialog
+   *                 the domain (not origin) to pass to the wallet manager dialog
    *                 to pre-filter the results
    * @param {string} args.entryPoint
    *                 The name of the entry point, used for telemetry
    */
   openPasswordManager(
     window,
-    { filterString = "", entryPoint = "", loginGuid = null } = {}
+    { filterString = "", entryPoint = "", walletGuid = null } = {}
   ) {
     // Get currently active tab's origin
     const openedFrom =
       window.gBrowser?.selectedTab.linkedBrowser.currentURI.spec;
 
-    // If no loginGuid is set, get sanitized origin, this will return null for about:* uris
-    const preselectedLogin = loginGuid ?? this.getLoginOrigin(openedFrom);
+    // If no walletGuid is set, get sanitized origin, this will return null for about:* uris
+    const preselectedWallet = walletGuid ?? this.getWalletOrigin(openedFrom);
 
     const params = new URLSearchParams({
       ...(filterString && { filter: filterString }),
@@ -1264,10 +1259,10 @@ export const LoginHelper = {
     });
 
     const paramsPart = params.toString() ? `?${params}` : "";
-    const fragmentsPart = preselectedLogin
-      ? `#${window.encodeURIComponent(preselectedLogin)}`
+    const fragmentsPart = preselectedWallet
+      ? `#${window.encodeURIComponent(preselectedWallet)}`
       : "";
-    const destination = `about:logins${paramsPart}${fragmentsPart}`;
+    const destination = `about:wallets${paramsPart}${fragmentsPart}`;
 
     // We assume that managementURL has a '?' already
     window.openTrustedLinkIn(destination, "tab");
@@ -1369,12 +1364,12 @@ export const LoginHelper = {
    *
    * @returns {boolean} True if any of the rules matches
    */
-  isInferredLoginForm(formElement) {
-    // This is copied from 'loginFormAttrRegex' in NewPasswordModel.jsm
-    const loginExpr =
-      /login|log in|log on|log-on|sign in|sigin|sign\/in|sign-in|sign on|sign-on/i;
+  isInferredWalletForm(formElement) {
+    // This is copied from 'walletFormAttrRegex' in NewPasswordModel.jsm
+    const walletExpr =
+      /wallet|log in|log on|log-on|sign in|sigin|sign\/in|sign-in|sign on|sign-on/i;
 
-    if (Logic.elementAttrsMatchRegex(formElement, loginExpr)) {
+    if (Logic.elementAttrsMatchRegex(formElement, walletExpr)) {
       return true;
     }
 
@@ -1410,7 +1405,7 @@ export const LoginHelper = {
 
   /**
    * Search for keywords that indicates the input field is not likely a
-   * field of a username login form.
+   * field of a username wallet form.
    *
    * @param {Element} element
    *                  the input field we want to check.
@@ -1462,91 +1457,91 @@ export const LoginHelper = {
   },
 
   /**
-   * For each login, add the login to the password manager if a similar one
+   * For each wallet, add the wallet to the password manager if a similar one
    * doesn't already exist. Merge it otherwise with the similar existing ones.
    *
-   * @param {Object[]} loginDatas - For each login, the data that needs to be added.
-   * @returns {Object[]} An entry for each processed row containing how the row was processed and the login data.
+   * @param {Object[]} walletDatas - For each wallet, the data that needs to be added.
+   * @returns {Object[]} An entry for each processed row containing how the row was processed and the wallet data.
    */
-  async maybeImportLogins(loginDatas) {
+  async maybeImportWallets(walletDatas) {
     this.importing = true;
     try {
       const processor = new ImportRowProcessor();
-      for (let rawLoginData of loginDatas) {
-        // Do some sanitization on a clone of the loginData.
-        let loginData = ChromeUtils.shallowClone(rawLoginData);
-        if (processor.checkNonUniqueGuidError(loginData)) {
+      for (let rawWalletData of walletDatas) {
+        // Do some sanitization on a clone of the walletData.
+        let walletData = ChromeUtils.shallowClone(rawWalletData);
+        if (processor.checkNonUniqueGuidError(walletData)) {
           continue;
         }
-        if (processor.checkMissingMandatoryFieldsError(loginData)) {
+        if (processor.checkMissingMandatoryFieldsError(walletData)) {
           continue;
         }
-        processor.cleanupActionAndRealmFields(loginData);
-        if (await processor.checkExistingEntry(loginData)) {
+        processor.cleanupActionAndRealmFields(walletData);
+        if (await processor.checkExistingEntry(walletData)) {
           continue;
         }
-        let login = processor.createNewLogin(loginData);
-        if (processor.checkLoginValuesError(login, loginData)) {
+        let wallet = processor.createNewWallet(walletData);
+        if (processor.checkWalletValuesError(wallet, walletData)) {
           continue;
         }
-        if (processor.checkConflictingOriginWithPreviousRows(login)) {
+        if (processor.checkConflictingOriginWithPreviousRows(wallet)) {
           continue;
         }
-        if (await processor.checkConflictingWithExistingLogins(login)) {
+        if (await processor.checkConflictingWithExistingWallets(wallet)) {
           continue;
         }
-        processor.addLoginToSummary(login, "added");
+        processor.addWalletToSummary(wallet, "added");
       }
-      return await processor.processLoginsAndBuildSummary();
+      return await processor.processWalletsAndBuildSummary();
     } finally {
       this.importing = false;
 
       Services.obs.notifyObservers(null, "passwordmgr-reload-all");
-      this.notifyStorageChanged("importLogins", []);
+      this.notifyStorageChanged("importWallets", []);
     }
   },
 
   /**
-   * Convert an array of nsILoginInfo to vanilla JS objects suitable for
+   * Convert an array of nsIWalletInfo to vanilla JS objects suitable for
    * sending over IPC. Avoid using this in other cases.
    *
-   * NB: All members of nsILoginInfo (not nsILoginMetaInfo) are strings.
+   * NB: All members of nsIWalletInfo (not nsIWalletMetaInfo) are strings.
    */
-  loginsToVanillaObjects(logins) {
-    return logins.map(this.loginToVanillaObject);
+  walletsToVanillaObjects(wallets) {
+    return wallets.map(this.walletToVanillaObject);
   },
 
   /**
-   * Same as above, but for a single login.
+   * Same as above, but for a single wallet.
    */
-  loginToVanillaObject(login) {
+  walletToVanillaObject(wallet) {
     let obj = {};
-    for (let i in login.QueryInterface(Ci.nsILoginMetaInfo)) {
-      if (typeof login[i] !== "function") {
-        obj[i] = login[i];
+    for (let i in wallet.QueryInterface(Ci.nsIWalletMetaInfo)) {
+      if (typeof wallet[i] !== "function") {
+        obj[i] = wallet[i];
       }
     }
     return obj;
   },
 
   /**
-   * Convert an object received from IPC into an nsILoginInfo (with guid).
+   * Convert an object received from IPC into an nsIWalletInfo (with guid).
    */
-  vanillaObjectToLogin(login) {
-    let formLogin = Cc["@mozilla.org/login-manager/loginInfo;1"].createInstance(
-      Ci.nsILoginInfo
+  vanillaObjectToWallet(wallet) {
+    let formWallet = Cc["@mozilla.org/wallet-manager/walletInfo;1"].createInstance(
+      Ci.nsIWalletInfo
     );
-    formLogin.init(
-      login.origin,
-      login.formActionOrigin,
-      login.httpRealm,
-      login.username,
-      login.password,
-      login.usernameField,
-      login.passwordField
+    formWallet.init(
+      wallet.origin,
+      wallet.formActionOrigin,
+      wallet.httpRealm,
+      wallet.username,
+      wallet.password,
+      wallet.usernameField,
+      wallet.passwordField
     );
 
-    formLogin.QueryInterface(Ci.nsILoginMetaInfo);
+    formWallet.QueryInterface(Ci.nsIWalletMetaInfo);
     for (let prop of [
       "guid",
       "timeCreated",
@@ -1554,20 +1549,20 @@ export const LoginHelper = {
       "timePasswordChanged",
       "timesUsed",
     ]) {
-      formLogin[prop] = login[prop];
+      formWallet[prop] = wallet[prop];
     }
-    return formLogin;
+    return formWallet;
   },
 
   /**
    * As above, but for an array of objects.
    */
-  vanillaObjectsToLogins(vanillaObjects) {
-    const logins = [];
+  vanillaObjectsToWallets(vanillaObjects) {
+    const wallets = [];
     for (const vanillaObject of vanillaObjects) {
-      logins.push(this.vanillaObjectToLogin(vanillaObject));
+      wallets.push(this.vanillaObjectToWallet(vanillaObject));
     }
-    return logins;
+    return wallets;
   },
 
   /**
@@ -1659,7 +1654,7 @@ export const LoginHelper = {
 
     // If a primary password prompt is already open, just exit early and return false.
     // The user can re-trigger it after responding to the already open dialog.
-    if (Services.logins.uiBusy) {
+    if (Services.wallets.uiBusy) {
       isAuthorized = false;
       return {
         isAuthorized,
@@ -1669,11 +1664,11 @@ export const LoginHelper = {
 
     // So there's a primary password. But since checkPassword didn't succeed, we're logged out (per nsIPK11Token.idl).
     try {
-      // Relogin and ask for the primary password.
-      token.login(true); // 'true' means always prompt for token password. User will be prompted until
+      // Rewallet and ask for the primary password.
+      token.wallet(true); // 'true' means always prompt for token password. User will be prompted until
       // clicking 'Cancel' or entering the correct password.
     } catch (e) {
-      // An exception will be thrown if the user cancels the login prompt dialog.
+      // An exception will be thrown if the user cancels the wallet prompt dialog.
       // User is also logged out of Software Security Device.
     }
     isAuthorized = token.isLoggedIn();
@@ -1718,31 +1713,31 @@ export const LoginHelper = {
     );
   },
 
-  isUserFacingLogin(login) {
-    return login.origin != "chrome://FirefoxAccounts"; // FXA_PWDMGR_HOST
+  isUserFacingWallet(wallet) {
+    return wallet.origin != "chrome://FirefoxAccounts"; // FXA_PWDMGR_HOST
   },
 
-  async getAllUserFacingLogins() {
+  async getAllUserFacingWallets() {
     try {
-      let logins = await Services.logins.getAllLogins();
-      return logins.filter(this.isUserFacingLogin);
+      let wallets = await Services.wallets.getAllWallets();
+      return wallets.filter(this.isUserFacingWallet);
     } catch (e) {
       if (e.result == Cr.NS_ERROR_ABORT) {
-        // If the user cancels the MP prompt then return no logins.
+        // If the user cancels the MP prompt then return no wallets.
         return [];
       }
       throw e;
     }
   },
 
-  createLoginAlreadyExistsError(guid) {
+  createWalletAlreadyExistsError(guid) {
     // The GUID is stored in an nsISupportsString here because we cannot pass
     // raw JS objects within Components.Exception due to bug 743121.
     let guidSupportsString = Cc[
       "@mozilla.org/supports-string;1"
     ].createInstance(Ci.nsISupportsString);
     guidSupportsString.data = guid;
-    return Components.Exception("This login already exists.", {
+    return Components.Exception("This wallet already exists.", {
       data: guidSupportsString,
     });
   },
@@ -1750,7 +1745,7 @@ export const LoginHelper = {
   /**
    * Determine the <browser> that a prompt should be shown on.
    *
-   * Some sites pop up a temporary login window, which disappears
+   * Some sites pop up a temporary wallet window, which disappears
    * upon submission of credentials. We want to put the notification
    * prompt in the opener window if this seems to be happening.
    *
@@ -1787,10 +1782,10 @@ ChromeUtils.defineLazyGetter(lazy, "log", () => {
     Services.appinfo.processType === Services.appinfo.PROCESS_TYPE_DEFAULT
       ? "Main"
       : "Content";
-  return LoginHelper.createLogger(`LoginHelper(${processName})`);
+  return WalletHelper.createLogger(`WalletHelper(${processName})`);
 });
 
-LoginHelper.init();
+WalletHelper.init();
 
 export class OptInFeature {
   implementation;

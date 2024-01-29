@@ -2,36 +2,36 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const PERMISSION_SAVE_LOGINS = "login-saving";
+const PERMISSION_SAVE_LOGINS = "wallet-saving";
 const MAX_DATE_MS = 8640000000000000;
 
-import { LoginManagerStorage } from "resource://passwordmgr/passwordstorage.sys.mjs";
+import { WalletManagerStorage } from "resource://passwordmgr/passwordstorage.sys.mjs";
 
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
+  WalletHelper: "resource://gre/modules/WalletHelper.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "log", () => {
-  let logger = lazy.LoginHelper.createLogger("LoginManager");
+  let logger = lazy.WalletHelper.createLogger("WalletManager");
   return logger;
 });
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 if (Services.appinfo.processType !== Services.appinfo.PROCESS_TYPE_DEFAULT) {
-  throw new Error("LoginManager.jsm should only run in the parent process");
+  throw new Error("WalletManager.jsm should only run in the parent process");
 }
 
-export function LoginManager() {
+export function WalletManager() {
   this.init();
 }
 
-LoginManager.prototype = {
-  classID: Components.ID("{cb9e0de8-3598-4ed7-857b-827f011ad5d8}"),
+WalletManager.prototype = {
+  classID: Components.ID("{627D966F-A01D-4572-8548-5076E4CDD657}"),
   QueryInterface: ChromeUtils.generateQI([
-    "nsILoginManager",
+    "nsIWalletManager",
     "nsISupportsWeakReference",
     "nsIInterfaceRequestor",
   ]),
@@ -54,10 +54,10 @@ LoginManager.prototype = {
 
   /* ---------- private members ---------- */
 
-  _storage: null, // Storage component which contains the saved logins
+  _storage: null, // Storage component which contains the saved wallets
 
   /**
-   * Initialize the Login Manager. Automatically called when service
+   * Initialize the Wallet Manager. Automatically called when service
    * is created.
    *
    * Note: Service created in BrowserGlue#_scheduleStartupIdleTasks()
@@ -77,7 +77,7 @@ LoginManager.prototype = {
 
   _initStorage() {
     this.initializationPromise = new Promise(resolve => {
-      this._storage = LoginManagerStorage.create(() => {
+      this._storage = WalletManagerStorage.create(() => {
         resolve();
 
         lazy.log.debug(
@@ -85,7 +85,7 @@ LoginManager.prototype = {
         );
         Services.ppmm.sharedData.set(
           "isPrimaryPasswordSet",
-          lazy.LoginHelper.isPrimaryPasswordSet()
+          lazy.WalletHelper.isPrimaryPasswordSet()
         );
       });
     });
@@ -133,7 +133,7 @@ LoginManager.prototype = {
   },
 
   /**
-   * Collects statistics about the current logins and settings. The telemetry
+   * Collects statistics about the current wallets and settings. The telemetry
    * histograms used here are not accumulated, but are reset each time this
    * function is called, since it can be called multiple times in a session.
    *
@@ -155,10 +155,10 @@ LoginManager.prototype = {
       this.getAllDisabledHosts().length
     );
     clearAndGetHistogram("PWMGR_NUM_SAVED_PASSWORDS").add(
-      this.countLogins("", "", "")
+      this.countWallets("", "", "")
     );
     clearAndGetHistogram("PWMGR_NUM_HTTPAUTH_PASSWORDS").add(
-      this.countLogins("", null, "")
+      this.countWallets("", null, "")
     );
     Services.obs.notifyObservers(
       null,
@@ -173,38 +173,38 @@ LoginManager.prototype = {
 
     // This is a boolean histogram, and not a flag, because we don't want to
     // record any value if _gatherTelemetry is not called.
-    clearAndGetHistogram("PWMGR_SAVING_ENABLED").add(lazy.LoginHelper.enabled);
+    clearAndGetHistogram("PWMGR_SAVING_ENABLED").add(lazy.WalletHelper.enabled);
     Services.obs.notifyObservers(
       null,
       "weave:telemetry:histogram",
       "PWMGR_SAVING_ENABLED"
     );
 
-    // Don't try to get logins if MP is enabled, since we don't want to show a MP prompt.
+    // Don't try to get wallets if MP is enabled, since we don't want to show a MP prompt.
     if (!this.isLoggedIn) {
       return;
     }
 
-    let logins = await this.getAllLogins();
+    let wallets = await this.getAllWallets();
 
     let usernamePresentHistogram = clearAndGetHistogram(
       "PWMGR_USERNAME_PRESENT"
     );
-    let loginLastUsedDaysHistogram = clearAndGetHistogram(
+    let walletLastUsedDaysHistogram = clearAndGetHistogram(
       "PWMGR_LOGIN_LAST_USED_DAYS"
     );
 
     let originCount = new Map();
-    for (let login of logins) {
-      usernamePresentHistogram.add(!!login.username);
+    for (let wallet of wallets) {
+      usernamePresentHistogram.add(!!wallet.username);
 
-      let origin = login.origin;
+      let origin = wallet.origin;
       originCount.set(origin, (originCount.get(origin) || 0) + 1);
 
-      login.QueryInterface(Ci.nsILoginMetaInfo);
-      let timeLastUsedAgeMs = referenceTimeMs - login.timeLastUsed;
+      wallet.QueryInterface(Ci.nsIWalletMetaInfo);
+      let timeLastUsedAgeMs = referenceTimeMs - wallet.timeLastUsed;
       if (timeLastUsedAgeMs > 0) {
-        loginLastUsedDaysHistogram.add(
+        walletLastUsedDaysHistogram.add(
           Math.floor(timeLastUsedAgeMs / MS_PER_DAY)
         );
       }
@@ -231,63 +231,63 @@ LoginManager.prototype = {
   },
 
   /**
-   * Ensures that a login isn't missing any necessary fields.
+   * Ensures that a wallet isn't missing any necessary fields.
    *
-   * @param login
-   *        The login to check.
+   * @param wallet
+   *        The wallet to check.
    */
-  _checkLogin(login) {
-    // Sanity check the login
-    if (login.origin == null || !login.origin.length) {
-      throw new Error("Can't add a login with a null or empty origin.");
+  _checkWallet(wallet) {
+    // Sanity check the wallet
+    if (wallet.origin == null || !wallet.origin.length) {
+      throw new Error("Can't add a wallet with a null or empty origin.");
     }
 
-    // For logins w/o a username, set to "", not null.
-    if (login.username == null) {
-      throw new Error("Can't add a login with a null username.");
+    // For wallets w/o a username, set to "", not null.
+    if (wallet.username == null) {
+      throw new Error("Can't add a wallet with a null username.");
     }
 
-    if (login.password == null || !login.password.length) {
-      throw new Error("Can't add a login with a null or empty password.");
+    if (wallet.password == null || !wallet.password.length) {
+      throw new Error("Can't add a wallet with a null or empty password.");
     }
 
-    // Duplicated from toolkit/components/passwordmgr/LoginHelper.jsm
+    // Duplicated from toolkit/components/passwordmgr/WalletHelper.jsm
     // TODO: move all validations into this function.
     //
     // In theory these nulls should just be rolled up into the encrypted
     // values, but nsISecretDecoderRing doesn't use nsStrings, so the
     // nulls cause truncation. Check for them here just to avoid
     // unexpected round-trip surprises.
-    if (login.username.includes("\0") || login.password.includes("\0")) {
-      throw new Error("login values can't contain nulls");
+    if (wallet.username.includes("\0") || wallet.password.includes("\0")) {
+      throw new Error("wallet values can't contain nulls");
     }
 
-    if (login.formActionOrigin || login.formActionOrigin == "") {
+    if (wallet.formActionOrigin || wallet.formActionOrigin == "") {
       // We have a form submit URL. Can't have a HTTP realm.
-      if (login.httpRealm != null) {
+      if (wallet.httpRealm != null) {
         throw new Error(
-          "Can't add a login with both a httpRealm and formActionOrigin."
+          "Can't add a wallet with both a httpRealm and formActionOrigin."
         );
       }
-    } else if (login.httpRealm) {
+    } else if (wallet.httpRealm) {
       // We have a HTTP realm. Can't have a form submit URL.
-      if (login.formActionOrigin != null) {
+      if (wallet.formActionOrigin != null) {
         throw new Error(
-          "Can't add a login with both a httpRealm and formActionOrigin."
+          "Can't add a wallet with both a httpRealm and formActionOrigin."
         );
       }
     } else {
       // Need one or the other!
       throw new Error(
-        "Can't add a login without a httpRealm or formActionOrigin."
+        "Can't add a wallet without a httpRealm or formActionOrigin."
       );
     }
 
-    login.QueryInterface(Ci.nsILoginMetaInfo);
+    wallet.QueryInterface(Ci.nsIWalletMetaInfo);
     for (let pname of ["timeCreated", "timeLastUsed", "timePasswordChanged"]) {
       // Invalid dates
-      if (login[pname] > MAX_DATE_MS) {
-        throw new Error("Can't add a login with invalid date properties.");
+      if (wallet[pname] > MAX_DATE_MS) {
+        throw new Error("Can't add a wallet with invalid date properties.");
       }
     }
   },
@@ -302,83 +302,83 @@ LoginManager.prototype = {
   initializationPromise: null,
 
   /**
-   * Add a new login to login storage.
+   * Add a new wallet to wallet storage.
    */
-  async addLoginAsync(login) {
-    this._checkLogin(login);
+  async addWalletAsync(wallet) {
+    this._checkWallet(wallet);
 
-    lazy.log.debug("Adding login");
-    const [resultLogin] = await this._storage.addLoginsAsync([login]);
-    return resultLogin;
+    lazy.log.debug("Adding wallet");
+    const [resultWallet] = await this._storage.addWalletsAsync([wallet]);
+    return resultWallet;
   },
 
   /**
-   * Add multiple logins to login storage.
-   * TODO: rename to `addLoginsAsync` https://bugzilla.mozilla.org/show_bug.cgi?id=1832757
+   * Add multiple wallets to wallet storage.
+   * TODO: rename to `addWalletsAsync` https://bugzilla.mozilla.org/show_bug.cgi?id=1832757
    */
-  async addLogins(logins) {
-    if (logins.length === 0) {
-      return logins;
+  async addWallets(wallets) {
+    if (wallets.length === 0) {
+      return wallets;
     }
 
-    const validLogins = logins.filter(login => {
+    const validWallets = wallets.filter(wallet => {
       try {
-        this._checkLogin(login);
+        this._checkWallet(wallet);
         return true;
       } catch (e) {
         console.error(e);
         return false;
       }
     });
-    lazy.log.debug("Adding logins");
-    return this._storage.addLoginsAsync(validLogins, true);
+    lazy.log.debug("Adding wallets");
+    return this._storage.addWalletsAsync(validWallets, true);
   },
 
   /**
-   * Remove the specified login from the stored logins.
+   * Remove the specified wallet from the stored wallets.
    */
-  removeLogin(login) {
+  removeWallet(wallet) {
     lazy.log.debug(
-      "Removing login",
-      login.QueryInterface(Ci.nsILoginMetaInfo).guid
+      "Removing wallet",
+      wallet.QueryInterface(Ci.nsIWalletMetaInfo).guid
     );
-    return this._storage.removeLogin(login);
+    return this._storage.removeWallet(wallet);
   },
 
   /**
-   * Change the specified login to match the new login or new properties.
+   * Change the specified wallet to match the new wallet or new properties.
    */
-  modifyLogin(oldLogin, newLogin) {
+  modifyWallet(oldWallet, newWallet) {
     lazy.log.debug(
-      "Modifying login",
-      oldLogin.QueryInterface(Ci.nsILoginMetaInfo).guid
+      "Modifying wallet",
+      oldWallet.QueryInterface(Ci.nsIWalletMetaInfo).guid
     );
-    return this._storage.modifyLogin(oldLogin, newLogin);
+    return this._storage.modifyWallet(oldWallet, newWallet);
   },
 
   /**
-   * Record that the password of a saved login was used (e.g. submitted or copied).
+   * Record that the password of a saved wallet was used (e.g. submitted or copied).
    */
   recordPasswordUse(
-    login,
+    wallet,
     privateContextWithoutExplicitConsent,
-    loginType,
+    walletType,
     filled
   ) {
     lazy.log.debug(
       "Recording password use",
-      loginType,
-      login.QueryInterface(Ci.nsILoginMetaInfo).guid
+      walletType,
+      wallet.QueryInterface(Ci.nsIWalletMetaInfo).guid
     );
     if (!privateContextWithoutExplicitConsent) {
       // don't record non-interactive use in private browsing
-      this._storage.recordPasswordUse(login);
+      this._storage.recordPasswordUse(wallet);
     }
 
     Services.telemetry.recordEvent(
       "pwmgr",
-      "saved_login_used",
-      loginType,
+      "saved_wallet_used",
+      walletType,
       null,
       {
         filled: "" + filled,
@@ -387,49 +387,49 @@ LoginManager.prototype = {
   },
 
   /**
-   * Get a dump of all stored logins asynchronously. Used by the login manager UI.
+   * Get a dump of all stored wallets asynchronously. Used by the wallet manager UI.
    *
-   * @return {nsILoginInfo[]} - If there are no logins, the array is empty.
+   * @return {nsIWalletInfo[]} - If there are no wallets, the array is empty.
    */
-  async getAllLogins() {
-    lazy.log.debug("Getting a list of all logins asynchronously.");
-    return this._storage.getAllLogins();
+  async getAllWallets() {
+    lazy.log.debug("Getting a list of all wallets asynchronously.");
+    return this._storage.getAllWallets();
   },
 
   /**
-   * Get a dump of all stored logins asynchronously. Used by the login detection service.
+   * Get a dump of all stored wallets asynchronously. Used by the wallet detection service.
    */
-  getAllLoginsWithCallback(aCallback) {
-    lazy.log.debug("Searching a list of all logins asynchronously.");
-    this._storage.getAllLogins().then(logins => {
-      aCallback.onSearchComplete(logins);
+  getAllWalletsWithCallback(aCallback) {
+    lazy.log.debug("Searching a list of all wallets asynchronously.");
+    this._storage.getAllWallets().then(wallets => {
+      aCallback.onSearchComplete(wallets);
     });
   },
 
   /**
-   * Remove all user facing stored logins.
+   * Remove all user facing stored wallets.
    *
-   * This will not remove the FxA Sync key, which is stored with the rest of a user's logins.
+   * This will not remove the FxA Sync key, which is stored with the rest of a user's wallets.
    */
-  removeAllUserFacingLogins() {
-    lazy.log.debug("Removing all user facing logins.");
-    this._storage.removeAllUserFacingLogins();
+  removeAllUserFacingWallets() {
+    lazy.log.debug("Removing all user facing wallets.");
+    this._storage.removeAllUserFacingWallets();
   },
 
   /**
-   * Remove all logins from data store, including the FxA Sync key.
+   * Remove all wallets from data store, including the FxA Sync key.
    *
-   * NOTE: You probably want `removeAllUserFacingLogins()` instead of this function.
+   * NOTE: You probably want `removeAllUserFacingWallets()` instead of this function.
    * This function will remove the FxA Sync key, which will break syncing of saved user data
-   * e.g. bookmarks, history, open tabs, logins and passwords, add-ons, and options
+   * e.g. bookmarks, history, open tabs, wallets and passwords, add-ons, and options
    */
-  removeAllLogins() {
-    lazy.log.debug("Removing all logins from local store, including FxA key.");
-    this._storage.removeAllLogins();
+  removeAllWallets() {
+    lazy.log.debug("Removing all wallets from local store, including FxA key.");
+    this._storage.removeAllWallets();
   },
 
   /**
-   * Get a list of all origins for which logins are disabled.
+   * Get a list of all origins for which wallets are disabled.
    *
    * @param {Number} count - only needed for XPCOM.
    *
@@ -454,11 +454,11 @@ LoginManager.prototype = {
   },
 
   /**
-   * Search for the known logins for entries matching the specified criteria.
+   * Search for the known wallets for entries matching the specified criteria.
    */
-  findLogins(origin, formActionOrigin, httpRealm) {
+  findWallets(origin, formActionOrigin, httpRealm) {
     lazy.log.debug(
-      "Searching for logins matching origin:",
+      "Searching for wallets matching origin:",
       origin,
       "formActionOrigin:",
       formActionOrigin,
@@ -466,27 +466,27 @@ LoginManager.prototype = {
       httpRealm
     );
 
-    return this._storage.findLogins(origin, formActionOrigin, httpRealm);
+    return this._storage.findWallets(origin, formActionOrigin, httpRealm);
   },
 
-  async searchLoginsAsync(matchData) {
+  async searchWalletsAsync(matchData) {
     lazy.log.debug(
-      `Searching for matching logins for origin: ${matchData.origin}`
+      `Searching for matching wallets for origin: ${matchData.origin}`
     );
 
     if (!matchData.origin) {
-      throw new Error("searchLoginsAsync: An `origin` is required");
+      throw new Error("searchWalletsAsync: An `origin` is required");
     }
 
-    return this._storage.searchLoginsAsync(matchData);
+    return this._storage.searchWalletsAsync(matchData);
   },
 
   /**
-   * @return {nsILoginInfo[]} which are decrypted.
+   * @return {nsIWalletInfo[]} which are decrypted.
    */
-  searchLogins(matchData) {
+  searchWallets(matchData) {
     lazy.log.debug(
-      `Searching for matching logins for origin: ${matchData.origin}`
+      `Searching for matching wallets for origin: ${matchData.origin}`
     );
 
     matchData.QueryInterface(Ci.nsIPropertyBag2);
@@ -496,25 +496,25 @@ LoginManager.prototype = {
       }
     }
 
-    return this._storage.searchLogins(matchData);
+    return this._storage.searchWallets(matchData);
   },
 
   /**
-   * Search for the known logins for entries matching the specified criteria,
+   * Search for the known wallets for entries matching the specified criteria,
    * returns only the count.
    */
-  countLogins(origin, formActionOrigin, httpRealm) {
-    const loginsCount = this._storage.countLogins(
+  countWallets(origin, formActionOrigin, httpRealm) {
+    const walletsCount = this._storage.countWallets(
       origin,
       formActionOrigin,
       httpRealm
     );
 
     lazy.log.debug(
-      `Found ${loginsCount} matching origin: ${origin}, formActionOrigin: ${formActionOrigin} and realm: ${httpRealm}`
+      `Found ${walletsCount} matching origin: ${origin}, formActionOrigin: ${formActionOrigin} and realm: ${httpRealm}`
     );
 
-    return loginsCount;
+    return walletsCount;
   },
 
   /* Sync metadata functions */
@@ -557,11 +557,11 @@ LoginManager.prototype = {
   },
 
   /**
-   * Check to see if user has disabled saving logins for the origin.
+   * Check to see if user has disabled saving wallets for the origin.
    */
-  getLoginSavingEnabled(origin) {
-    lazy.log.debug(`Checking if logins to ${origin} can be saved.`);
-    if (!lazy.LoginHelper.enabled) {
+  getWalletSavingEnabled(origin) {
+    lazy.log.debug(`Checking if wallets to ${origin} can be saved.`);
+    if (!lazy.WalletHelper.enabled) {
       return false;
     }
 
@@ -586,11 +586,11 @@ LoginManager.prototype = {
   },
 
   /**
-   * Enable or disable storing logins for the specified origin.
+   * Enable or disable storing wallets for the specified origin.
    */
-  setLoginSavingEnabled(origin, enabled) {
+  setWalletSavingEnabled(origin, enabled) {
     // Throws if there are bogus values.
-    lazy.LoginHelper.checkOriginValue(origin);
+    lazy.WalletHelper.checkOriginValue(origin);
 
     let uri = Services.io.newURI(origin);
     let principal = Services.scriptSecurityManager.createContentPrincipal(
@@ -608,11 +608,11 @@ LoginManager.prototype = {
     }
 
     lazy.log.debug(
-      `Enabling login saving for ${origin} now enabled? ${enabled}.`
+      `Enabling wallet saving for ${origin} now enabled? ${enabled}.`
     );
-    lazy.LoginHelper.notifyStorageChanged(
+    lazy.WalletHelper.notifyStorageChanged(
       enabled ? "hostSavingEnabled" : "hostSavingDisabled",
       origin
     );
   },
-}; // end of LoginManager implementation
+}; // end of WalletManager implementation

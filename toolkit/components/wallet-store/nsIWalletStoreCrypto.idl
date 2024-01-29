@@ -5,8 +5,8 @@
 
 #include "nsISupports.idl"
 
-[scriptable, uuid(2030770e-542e-40cd-8061-cd9d4ad4227f)]
-interface nsILoginManagerCrypto : nsISupports {
+[scriptable, uuid(C52AEAAE-FDB5-4098-97E4-4B157D26FB27)]
+interface nsIWalletStoreCrypto : nsISupports {
 
   const unsigned long ENCTYPE_BASE64 = 0; // obsolete
   const unsigned long ENCTYPE_SDR = 1;
@@ -74,7 +74,7 @@ interface nsILoginManagerCrypto : nsISupports {
   /**
    * isLoggedIn
    *
-   * Current login state of the token used for encryption. If the user is
+   * Current wallet state of the token used for encryption. If the user is
    * not logged in, performing a crypto operation will result in a primary
    * password prompt.
    */

@@ -1,26 +1,32 @@
-/* This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
+// This is the base include which defines nsISupports. This class defines
+// the QueryInterface method.
 #include "nsISupports.idl"
 
-interface nsILoginInfo;
-interface nsIPropertyBag;
+interface nsIWalletInfo;
+interface nsIPropertyBag; // TODO: (ssb) currently remain loginmangr. Decide whether to drop or modify.
 
-[scriptable, uuid(43429075-ede6-41eb-ac69-a8cd4376b041)]
-interface nsILoginSearchCallback : nsISupports
+// `scriptable` designates that this object will be used with JavaScript
+// `uuid`       The example below uses a UUID with all Xs. Replace the Xs with
+//              your own UUID generated here:
+//              http://mozilla.pettay.fi/cgi-bin/mozuuid.pl
+
+[scriptable, uuid(9F617EA6-6A49-4E45-A5BC-75806625952B)]
+interface nsIWalletSearchCallback : nsISupports
 {
   /**
    * Called when a search is complete and the results are ready.
    *
-   * @param aLogins
-   *        Logins found in the search.
+   * @param WalletCredentials
+   *        Credentials found in the search.
    */
-  void onSearchComplete(in Array<nsILoginInfo> aLogins);
+  void onSearchComplete(in Array<nsIWalletInfo> aWalletCredentials);
 };
 
-[scriptable, uuid(38c7f6af-7df9-49c7-b558-2776b24e6cc1)]
-interface nsILoginManager : nsISupports {
+/**
+ * Make sure to document your interface.
+ */
+[scriptable, uuid(AA131FC6-69F8-465D-B269-BF7B9ECF6388)]
+interface nsIWalletStore : nsISupports {
   /**
    * This promise is resolved when initialization is complete, and is rejected
    * in case initialization failed.  This includes the initial loading of the
@@ -34,7 +40,7 @@ interface nsILoginManager : nsISupports {
   /**
    * Store a new login in the login manager.
    *
-   * @param aLogin
+   * @param aWallet
    *        The login to be added.
    * @return a clone of the login info with the guid set (even if it was not provided)
    *
@@ -42,12 +48,12 @@ interface nsILoginManager : nsISupports {
    * created. However, if the caller specifies non-default values, they will
    * be used instead.
    */
-  nsILoginInfo addLogin(in nsILoginInfo aLogin);
+  nsIWalletInfo addWallet(in nsIWalletInfo aWallet);
 
   /**
-   * Like addLogin, but asynchronous.
+   * Like addWallet, but asynchronous.
    *
-   * @param aLogin
+   * @param aWallet
    *        The login to be added.
    * @return A promise which resolves with a cloned login with the guid set.
    *
@@ -55,13 +61,13 @@ interface nsILoginManager : nsISupports {
    * created. However, if the caller specifies non-default values, they will
    * be used instead.
    */
-  Promise addLoginAsync(in nsILoginInfo aLogin);
+  Promise addWalletAsync(in nsIWalletInfo aWallet);
 
   /**
-   * Like addLogin, but asynchronous and for many logins.
+   * Like addWallet, but asynchronous and for many logins.
    *
-   * @param aLogins
-   *        A JS Array of nsILoginInfos to add.
+   * @param aWallets
+   *        A JS Array of nsIWalletInfos to add.
    * @return A promise which resolves with a JS Array of cloned logins with
    *         the guids set.
    *
@@ -69,49 +75,49 @@ interface nsILoginManager : nsISupports {
    * created. However, if the caller specifies non-default values, they will
    * be used instead.
    */
-  Promise addLogins(in jsval aLogins);
+  Promise addWallets(in jsval aWallets);
 
   /**
    * Remove a login from the login manager.
    *
-   * @param aLogin
+   * @param aWallet
    *        The login to be removed.
    *
    * The specified login must exactly match a stored login. However, the
    * values of any nsILoginMetaInfo properties are ignored.
    */
-  void removeLogin(in nsILoginInfo aLogin);
+  void removeWallet(in nsIWalletInfo aWallet);
 
   /**
    * Modify an existing login in the login manager.
    *
-   * @param oldLogin
+   * @param oldWallet
    *        The login to be modified.
    * @param newLoginData
-   *        The new login values (either a nsILoginInfo or nsIProperyBag)
+   *        The new login values (either a nsIWalletInfo or nsIProperyBag)
    *
-   * If newLoginData is a nsILoginInfo, all of the old login's nsILoginInfo
+   * If newLoginData is a nsIWalletInfo, all of the old login's nsIWalletInfo
    * properties are changed to the values from newLoginData (but the old
    * login's nsILoginMetaInfo properties are unmodified).
    *
    * If newLoginData is a nsIPropertyBag, only the specified properties
-   * will be changed. The nsILoginMetaInfo properties of oldLogin can be
+   * will be changed. The nsILoginMetaInfo properties of oldWallet can be
    * changed in this manner.
    *
    * If the propertybag contains an item named "timesUsedIncrement", the
    * login's timesUsed property will be incremented by the item's value.
    */
-  void modifyLogin(in nsILoginInfo oldLogin, in nsISupports newLoginData);
+  void modifyWallet(in nsIWalletInfo oldWallet, in nsISupports newLoginData);
 
   /**
    * Record that the password of a saved login was used (e.g. submitted or copied).
    *
-   * @param {nsILoginInfo} aLogin
+   * @param {nsIWalletInfo} aWallet
    *        The login record of the password that was used.
    * @param {boolean} aPrivateContextWithoutExplicitConsent
    *        If the use was in private browsing AND without the user explicitly choosing to save/update.
    *        Login use metadata will not be updated in this case but it will stil be counted for telemetry.
-   * @param {AString} aLoginType
+   * @param {AString} aWalletType
    *        One of "form_login", "form_password", "auth_login", or "prompt_login".
    *        See saved_login_used in Events.yaml.
    *        Don't assume that an auth. login is never used in a form and vice-versa. This argument
@@ -123,7 +129,7 @@ interface nsILoginManager : nsISupports {
    * want to double-count the use if both the username and password are copied.
    * Copying of the username normally precedes the copying of the password anyways.
    */
-  void recordPasswordUse(in nsILoginInfo aLogin, in boolean aPrivateContextWithoutExplicitConsent, in AString aLoginType, in boolean aFilled);
+  void recordPasswordUse(in nsIWalletInfo aWallet, in boolean aPrivateContextWithoutExplicitConsent, in AString aWalletType, in boolean aFilled);
 
   /**
    * Remove all stored user facing logins.
@@ -137,31 +143,31 @@ interface nsILoginManager : nsISupports {
    * login first.
    *
    */
-  void removeAllUserFacingLogins();
+  void removeAllUserFacingWallets();
 
   /**
    * Completely remove all logins, including the user's FxA Sync key.
    *
    */
-  void removeAllLogins();
+  void removeAllWallets();
 
   /**
    * Fetch all logins in the login manager. An array is always returned;
    * if there are no logins the array is empty. Decryption is handled in
    * one batch.
    *
-   * @return A promise which resolves with a JS Array of nsILoginInfo objects.
+   * @return A promise which resolves with a JS Array of nsIWalletInfo objects.
    */
-  Promise getAllLogins();
+  Promise getAllWallets();
 
   /**
-   * Like getAllLogins, but with a callback returning the search results.
+   * Like getAllWallets, but with a callback returning the search results.
    *
-   * @param {nsILoginSearchCallback} aCallback
+   * @param {nsIWalletSearchCallback} aCallback
    *        The interface to notify when the search is complete.
    *
    */
-  void getAllLoginsWithCallback(in nsILoginSearchCallback aCallback);
+  void getAllWalletsWithCallback(in nsIWalletSearchCallback aCallback);
 
   /**
    * Obtain a list of all origins for which password saving is disabled.
@@ -176,7 +182,7 @@ interface nsILoginManager : nsISupports {
    * @param aHost
    *        The origin to check. For example: "http://foo.com".
    */
-  boolean getLoginSavingEnabled(in AString aHost);
+  boolean getWalletSavingEnabled(in AString aHost);
 
   /**
    * Disable (or enable) storing logins for the specified origin. When
@@ -189,13 +195,13 @@ interface nsILoginManager : nsISupports {
    *        Specify if saving logins should be enabled (true) or
    *        disabled (false)
    */
-  void setLoginSavingEnabled(in AString aHost, in boolean isEnabled);
+  void setWalletSavingEnabled(in AString aHost, in boolean isEnabled);
 
   /**
    * Search for logins matching the specified criteria. Called when looking
    * for logins that might be applicable to a form or authentication request.
    *
-   * @deprecated Use `searchLoginsAsync` instead. This function is retained
+   * @deprecated Use `searchWalletsAsync` instead. This function is retained
    * for Thunderbird compatibility.
    *
    * @param aOrigin
@@ -213,14 +219,14 @@ interface nsILoginManager : nsISupports {
    *        WWW-Authenticate header. See RFC2617. For form logins,
    *        specify null.
    *        An empty string ("") will match any value (except null).
-   * @return An array of nsILoginInfo objects.
+   * @return An array of nsIWalletInfo objects.
    */
-  Array<nsILoginInfo> findLogins(in AString aOrigin, in AString aActionOrigin,
+  Array<nsIWalletInfo> findWallets(in AString aOrigin, in AString aActionOrigin,
                                  in AString aHttpRealm);
 
   /**
    * Search for logins matching the specified criteria, as with
-   * findLogins(). This interface only returns the number of matching
+   * findWallets(). This interface only returns the number of matching
    * logins (and not the logins themselves), which allows a caller to
    * check for logins without causing the user to be prompted for a primary
    * password to decrypt the logins.
@@ -238,7 +244,7 @@ interface nsILoginManager : nsISupports {
    *        any realm, specify an empty string. To not match logins for any
    *        realm, specify null.
    */
-  unsigned long countLogins(in AString aOrigin, in AString aActionOrigin,
+  unsigned long countWallets(in AString aOrigin, in AString aActionOrigin,
                             in AString aHttpRealm);
 
   /**
@@ -247,27 +253,27 @@ interface nsILoginManager : nsISupports {
    *
    * @param {object} matchData
    *        The data used to search as a JS object. This does not follow the same
-   *        requirements as findLogins for those fields. Wildcard matches are
+   *        requirements as findWallets for those fields. Wildcard matches are
    *        simply not specified. If a `guid` is specified then no other properties
    *        are used (outside of GeckoView).
-   * @return A promise resolving to an array of nsILoginInfo objects.
+   * @return A promise resolving to an array of nsIWalletInfo objects.
    */
-  Promise searchLoginsAsync(in jsval matchData);
+  Promise searchWalletsAsync(in jsval matchData);
 
   /**
    * Search for logins in the login manager. An array is always returned;
    * if there are no logins the array is empty.
-   * @deprecated New code should use `searchLoginsAsync`.
+   * @deprecated New code should use `searchWalletsAsync`.
    *             Only autocomplete, prompt, and test code still use this.
    *
    * @param matchData
    *        The data used to search. This does not follow the same
-   *        requirements as findLogins for those fields. Wildcard matches are
+   *        requirements as findWallets for those fields. Wildcard matches are
    *        simply not specified. If a `guid` is specified then no other properties
    *        are used (outside of GeckoView).
-   * @return An array of nsILoginInfo objects.
+   * @return An array of nsIWalletInfo objects.
    */
-  Array<nsILoginInfo> searchLogins(in nsIPropertyBag matchData);
+  Array<nsIWalletInfo> searchWallets(in nsIPropertyBag matchData);
 
   /**
    * Returns the "sync id" used by Sync to know whether the store is current with
@@ -321,6 +327,6 @@ interface nsILoginManager : nsISupports {
 
 %{C++
 
-#define NS_LOGINMANAGER_CONTRACTID "@mozilla.org/login-manager;1"
+#define NS_WALLETSTORE_CONTRACTID "@mozilla.org/wallet-store;1"
 
 %}

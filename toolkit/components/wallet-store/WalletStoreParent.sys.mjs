@@ -5,19 +5,19 @@
 import { FirefoxRelayTelemetry } from "resource://gre/modules/FirefoxRelayTelemetry.mjs";
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
-const LoginInfo = new Components.Constructor(
-  "@mozilla.org/login-manager/loginInfo;1",
-  Ci.nsILoginInfo,
+const WalletInfo = new Components.Constructor(
+  "@mozilla.org/wallet-manager/walletInfo;1",
+  Ci.nsIWalletInfo,
   "init"
 );
 
 const lazy = {};
 
-ChromeUtils.defineLazyGetter(lazy, "LoginRelatedRealmsParent", () => {
-  const { LoginRelatedRealmsParent } = ChromeUtils.importESModule(
-    "resource://gre/modules/LoginRelatedRealms.sys.mjs"
+ChromeUtils.defineLazyGetter(lazy, "WalletRelatedRealmsParent", () => {
+  const { WalletRelatedRealmsParent } = ChromeUtils.importESModule(
+    "resource://gre/modules/WalletRelatedRealms.sys.mjs"
   );
-  return new LoginRelatedRealmsParent();
+  return new WalletRelatedRealmsParent();
 });
 
 ChromeUtils.defineLazyGetter(lazy, "PasswordRulesManager", () => {
@@ -30,7 +30,7 @@ ChromeUtils.defineLazyGetter(lazy, "PasswordRulesManager", () => {
 ChromeUtils.defineESModuleGetters(lazy, {
   ChromeMigrationUtils: "resource:///modules/ChromeMigrationUtils.sys.mjs",
   FirefoxRelay: "resource://gre/modules/FirefoxRelay.sys.mjs",
-  LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
+  WalletHelper: "resource://gre/modules/WalletHelper.sys.mjs",
   MigrationUtils: "resource:///modules/MigrationUtils.sys.mjs",
   NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
   PasswordGenerator: "resource://gre/modules/PasswordGenerator.sys.mjs",
@@ -40,16 +40,16 @@ ChromeUtils.defineESModuleGetters(lazy, {
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "prompterSvc",
-  "@mozilla.org/login-manager/prompter;1",
-  Ci.nsILoginManagerPrompter
+  "@mozilla.org/wallet-manager/prompter;1",
+  Ci.nsIWalletManagerPrompter
 );
 
 ChromeUtils.defineLazyGetter(lazy, "log", () => {
-  let logger = lazy.LoginHelper.createLogger("LoginManagerParent");
+  let logger = lazy.WalletHelper.createLogger("WalletManagerParent");
   return logger.log.bind(logger);
 });
 ChromeUtils.defineLazyGetter(lazy, "debug", () => {
-  let logger = lazy.LoginHelper.createLogger("LoginManagerParent");
+  let logger = lazy.WalletHelper.createLogger("WalletManagerParent");
   return logger.debug.bind(logger);
 });
 
@@ -68,11 +68,11 @@ let gListenerForTests = null;
 let gGeneratedPasswordsByPrincipalOrigin = new Map();
 
 /**
- * Reference to the default LoginRecipesParent (instead of the initialization promise) for
+ * Reference to the default WalletRecipesParent (instead of the initialization promise) for
  * synchronous access. This is a temporary hack and new consumers should yield on
  * recipeParentPromise instead.
  *
- * @type LoginRecipesParent
+ * @type WalletRecipesParent
  * @deprecated
  */
 let gRecipeManager = null;
@@ -81,7 +81,7 @@ let gRecipeManager = null;
  * Tracks the last time the user cancelled the primary password prompt,
  *  to avoid spamming primary password prompts on autocomplete searches.
  */
-let gLastMPLoginCancelled = Number.NEGATIVE_INFINITY;
+let gLastMPWalletCancelled = Number.NEGATIVE_INFINITY;
 
 let gGeneratedPasswordObserver = {
   addedObserver: false,
@@ -106,41 +106,41 @@ let gGeneratedPasswordObserver = {
 
     // We cache generated passwords in gGeneratedPasswordsByPrincipalOrigin.
     // When generated password used on the page,
-    // we store a login with generated password and without username.
-    // When user updates that autosaved login with username,
+    // we store a wallet with generated password and without username.
+    // When user updates that autosaved wallet with username,
     // we must clear cached generated password.
     // This will generate a new password next time user needs it.
-    if (topic == "passwordmgr-storage-changed" && data == "modifyLogin") {
-      const originalLogin = subject.GetElementAt(0);
-      const updatedLogin = subject.GetElementAt(1);
+    if (topic == "passwordmgr-storage-changed" && data == "modifyWallet") {
+      const originalWallet = subject.GetElementAt(0);
+      const updatedWallet = subject.GetElementAt(1);
 
-      if (originalLogin && !originalLogin.username && updatedLogin?.username) {
+      if (originalWallet && !originalWallet.username && updatedWallet?.username) {
         const generatedPassword = gGeneratedPasswordsByPrincipalOrigin.get(
-          originalLogin.origin
+          originalWallet.origin
         );
 
         if (
-          originalLogin.password == generatedPassword.value &&
-          updatedLogin.password == generatedPassword.value
+          originalWallet.password == generatedPassword.value &&
+          updatedWallet.password == generatedPassword.value
         ) {
-          gGeneratedPasswordsByPrincipalOrigin.delete(originalLogin.origin);
+          gGeneratedPasswordsByPrincipalOrigin.delete(originalWallet.origin);
         }
       }
     }
 
     if (
-      topic == "passwordmgr-autosaved-login-merged" ||
-      (topic == "passwordmgr-storage-changed" && data == "removeLogin")
+      topic == "passwordmgr-autosaved-wallet-merged" ||
+      (topic == "passwordmgr-storage-changed" && data == "removeWallet")
     ) {
       let { origin, guid } = subject;
       let generatedPW = gGeneratedPasswordsByPrincipalOrigin.get(origin);
 
-      // in the case where an autosaved login removed or merged into an existing login,
+      // in the case where an autosaved wallet removed or merged into an existing wallet,
       // clear the guid associated with the generated-password cache entry
       if (
         generatedPW &&
         (guid == generatedPW.storageGUID ||
-          topic == "passwordmgr-autosaved-login-merged")
+          topic == "passwordmgr-autosaved-wallet-merged")
       ) {
         lazy.log(
           `Removing storageGUID for generated-password cache entry on origin: ${origin}.`
@@ -157,20 +157,20 @@ Services.ppmm.addMessageListener("PasswordManager:findRecipes", message => {
 });
 
 /**
- * Lazily create a Map of origins to array of browsers with importable logins.
+ * Lazily create a Map of origins to array of browsers with importable wallets.
  *
  * @param {origin} formOrigin
  * @returns {Object?} containing array of migration browsers and experiment state.
  */
-async function getImportableLogins(formOrigin) {
+async function getImportableWallets(formOrigin) {
   // Include the experiment state for data and UI decisions; otherwise skip
   // importing if not supported or disabled.
   const state =
-    lazy.LoginHelper.suggestImportCount > 0 &&
-    lazy.LoginHelper.showAutoCompleteImport;
+    lazy.WalletHelper.suggestImportCount > 0 &&
+    lazy.WalletHelper.showAutoCompleteImport;
   return state
     ? {
-        browsers: await lazy.ChromeMigrationUtils.getImportableLogins(
+        browsers: await lazy.ChromeMigrationUtils.getImportableWallets(
           formOrigin
         ),
         state,
@@ -178,9 +178,9 @@ async function getImportableLogins(formOrigin) {
     : null;
 }
 
-export class LoginManagerParent extends JSWindowActorParent {
+export class WalletManagerParent extends JSWindowActorParent {
   possibleValues = {
-    // This is stored at the parent (i.e., frame) scope because the LoginManagerPrompter
+    // This is stored at the parent (i.e., frame) scope because the WalletManagerPrompter
     // is shared across all frames.
     //
     // It is mutated to update values without forcing us to set a new doorhanger.
@@ -219,10 +219,10 @@ export class LoginManagerParent extends JSWindowActorParent {
    * @param {origin?} options.formActionOrigin To match on. Omit this argument to match all action origins.
    * @param {origin?} options.httpRealm To match on. Omit this argument to match all realms.
    * @param {boolean} options.acceptDifferentSubdomains Include results for eTLD+1 matches
-   * @param {boolean} options.ignoreActionAndRealm Include all form and HTTP auth logins for the site
+   * @param {boolean} options.ignoreActionAndRealm Include all form and HTTP auth wallets for the site
    * @param {string[]} options.relatedRealms Related realms to match against when searching
    */
-  static async searchAndDedupeLogins(
+  static async searchAndDedupeWallets(
     formOrigin,
     {
       acceptDifferentSubdomains,
@@ -232,10 +232,10 @@ export class LoginManagerParent extends JSWindowActorParent {
       relatedRealms,
     } = {}
   ) {
-    let logins;
+    let wallets;
     let matchData = {
       origin: formOrigin,
-      schemeUpgrades: lazy.LoginHelper.schemeUpgrades,
+      schemeUpgrades: lazy.WalletHelper.schemeUpgrades,
       acceptDifferentSubdomains,
     };
     if (!ignoreActionAndRealm) {
@@ -245,24 +245,24 @@ export class LoginManagerParent extends JSWindowActorParent {
         matchData.httpRealm = httpRealm;
       }
     }
-    if (lazy.LoginHelper.relatedRealmsEnabled) {
-      matchData.acceptRelatedRealms = lazy.LoginHelper.relatedRealmsEnabled;
+    if (lazy.WalletHelper.relatedRealmsEnabled) {
+      matchData.acceptRelatedRealms = lazy.WalletHelper.relatedRealmsEnabled;
       matchData.relatedRealms = relatedRealms;
     }
     try {
-      logins = await Services.logins.searchLoginsAsync(matchData);
+      wallets = await Services.wallets.searchWalletsAsync(matchData);
     } catch (e) {
       // Record the last time the user cancelled the MP prompt
       // to avoid spamming them with MP prompts for autocomplete.
       if (e.result == Cr.NS_ERROR_ABORT) {
         lazy.log("User cancelled primary password prompt.");
-        gLastMPLoginCancelled = Date.now();
+        gLastMPWalletCancelled = Date.now();
         return [];
       }
       throw e;
     }
 
-    logins = lazy.LoginHelper.shadowHTTPLogins(logins);
+    wallets = lazy.WalletHelper.shadowHTTPWallets(wallets);
 
     let resolveBy = [
       "subdomain",
@@ -270,8 +270,8 @@ export class LoginManagerParent extends JSWindowActorParent {
       "scheme",
       "timePasswordChanged",
     ];
-    return lazy.LoginHelper.dedupeLogins(
-      logins,
+    return lazy.WalletHelper.dedupeWallets(
+      wallets,
       ["username", "password"],
       resolveBy,
       formOrigin,
@@ -288,8 +288,8 @@ export class LoginManagerParent extends JSWindowActorParent {
     }
     let context = {};
     ChromeUtils.defineLazyGetter(context, "origin", () => {
-      // We still need getLoginOrigin to remove the path for file: URIs until we fix bug 1625391.
-      let origin = lazy.LoginHelper.getLoginOrigin(
+      // We still need getWalletOrigin to remove the path for file: URIs until we fix bug 1625391.
+      let origin = lazy.WalletHelper.getWalletOrigin(
         this.manager.documentPrincipal?.originNoSuffix
       );
       if (!origin) {
@@ -309,8 +309,8 @@ export class LoginManagerParent extends JSWindowActorParent {
         break;
       }
 
-      case "PasswordManager:findLogins": {
-        return this.sendLoginDataToChild(
+      case "PasswordManager:findWallets": {
+        return this.sendWalletDataToChild(
           context.origin,
           data.actionOrigin,
           data.options
@@ -337,12 +337,12 @@ export class LoginManagerParent extends JSWindowActorParent {
         break;
       }
 
-      case "PasswordManager:autoCompleteLogins": {
+      case "PasswordManager:autoCompleteWallets": {
         return this.doAutocompleteSearch(context.origin, data);
       }
 
-      case "PasswordManager:removeLogin": {
-        this.#onRemoveLogin(data.login);
+      case "PasswordManager:removeWallet": {
+        this.#onRemoveWallet(data.wallet);
         break;
       }
 
@@ -433,9 +433,9 @@ export class LoginManagerParent extends JSWindowActorParent {
     }
   }
 
-  #onRemoveLogin(login) {
-    login = lazy.LoginHelper.vanillaObjectToLogin(login);
-    Services.logins.removeLogin(login);
+  #onRemoveWallet(wallet) {
+    wallet = lazy.WalletHelper.vanillaObjectToWallet(wallet);
+    Services.wallets.removeWallet(wallet);
   }
 
   #onOpenImportableLearnMore() {
@@ -458,9 +458,9 @@ export class LoginManagerParent extends JSWindowActorParent {
         "directMigrateSingleProfile"
       )
     ) {
-      const loginAdded = new Promise(resolve => {
+      const walletAdded = new Promise(resolve => {
         const obs = (_subject, _topic, data) => {
-          if (data == "addLogin") {
+          if (data == "addWallet") {
             Services.obs.removeObserver(obs, "passwordmgr-storage-changed");
             resolve();
           }
@@ -473,7 +473,7 @@ export class LoginManagerParent extends JSWindowActorParent {
         null,
         profiles[0]
       );
-      await loginAdded;
+      await walletAdded;
 
       // Reshow the popup with the imported password.
       this.sendAsyncMessage("PasswordManager:repopulateAutocompletePopup");
@@ -491,7 +491,7 @@ export class LoginManagerParent extends JSWindowActorParent {
 
   #onOpenPreferences(hostname, entryPoint) {
     const window = this.getRootBrowser().ownerGlobal;
-    lazy.LoginHelper.openPasswordManager(window, {
+    lazy.WalletHelper.openPasswordManager(window, {
       filterString: hostname,
       entryPoint,
     });
@@ -499,7 +499,7 @@ export class LoginManagerParent extends JSWindowActorParent {
 
   #onFormProcessed(formid, autofillResult) {
     const topActor =
-      this.browsingContext.currentWindowGlobal.getActor("LoginManager");
+      this.browsingContext.currentWindowGlobal.getActor("WalletManager");
     topActor.sendAsyncMessage("PasswordManager:formProcessed", { formid });
     if (gListenerForTests) {
       gListenerForTests("FormProcessed", {
@@ -513,12 +513,12 @@ export class LoginManagerParent extends JSWindowActorParent {
   }
 
   async #offerRelayIntegration(origin) {
-    const browser = lazy.LoginHelper.getBrowserForPrompt(this.getRootBrowser());
+    const browser = lazy.WalletHelper.getBrowserForPrompt(this.getRootBrowser());
     return lazy.FirefoxRelay.offerRelayIntegration(browser, origin);
   }
 
   async #generateRelayUsername(origin) {
-    const browser = lazy.LoginHelper.getBrowserForPrompt(this.getRootBrowser());
+    const browser = lazy.WalletHelper.getBrowserForPrompt(this.getRootBrowser());
     return lazy.FirefoxRelay.generateUsername(browser, origin);
   }
 
@@ -530,7 +530,7 @@ export class LoginManagerParent extends JSWindowActorParent {
     // Delay an existing timer with a potentially larger count.
     if (this._suggestImportTimer) {
       this._suggestImportTimer.delay =
-        LoginManagerParent.SUGGEST_IMPORT_DEBOUNCE_MS;
+        WalletManagerParent.SUGGEST_IMPORT_DEBOUNCE_MS;
       this._suggestImportCount = Math.max(count, this._suggestImportCount);
       return;
     }
@@ -543,10 +543,10 @@ export class LoginManagerParent extends JSWindowActorParent {
         this._suggestImportTimer = null;
         Services.prefs.setIntPref(
           "signon.suggestImportCount",
-          lazy.LoginHelper.suggestImportCount - this._suggestImportCount
+          lazy.WalletHelper.suggestImportCount - this._suggestImportCount
         );
       },
-      LoginManagerParent.SUGGEST_IMPORT_DEBOUNCE_MS,
+      WalletManagerParent.SUGGEST_IMPORT_DEBOUNCE_MS,
       Ci.nsITimer.TYPE_ONE_SHOT
     );
     this._suggestImportCount = count;
@@ -557,7 +557,7 @@ export class LoginManagerParent extends JSWindowActorParent {
     if (origin) {
       try {
         const formHost = new URL(origin).host;
-        let recipeManager = await LoginManagerParent.recipeParentPromise;
+        let recipeManager = await WalletManagerParent.recipeParentPromise;
         recipes = recipeManager.getRecipesForHost(formHost);
       } catch (ex) {
         // Some schemes e.g. chrome aren't supported by URL
@@ -568,55 +568,55 @@ export class LoginManagerParent extends JSWindowActorParent {
   }
 
   /**
-   * Trigger a login form fill and send relevant data (e.g. logins and recipes)
-   * to the child process (LoginManagerChild).
+   * Trigger a wallet form fill and send relevant data (e.g. wallets and recipes)
+   * to the child process (WalletManagerChild).
    */
   async fillForm({
     browser,
-    loginFormOrigin,
-    login,
+    walletFormOrigin,
+    wallet,
     inputElementIdentifier,
     style,
   }) {
-    const recipes = await this.#getRecipesForHost(loginFormOrigin);
+    const recipes = await this.#getRecipesForHost(walletFormOrigin);
 
-    // Convert the array of nsILoginInfo to vanilla JS objects since nsILoginInfo
+    // Convert the array of nsIWalletInfo to vanilla JS objects since nsIWalletInfo
     // doesn't support structured cloning.
-    const jsLogins = [lazy.LoginHelper.loginToVanillaObject(login)];
+    const jsWallets = [lazy.WalletHelper.walletToVanillaObject(wallet)];
 
     const browserURI = browser.currentURI.spec;
     const originMatches =
-      lazy.LoginHelper.getLoginOrigin(browserURI) == loginFormOrigin;
+      lazy.WalletHelper.getWalletOrigin(browserURI) == walletFormOrigin;
 
     this.sendAsyncMessage("PasswordManager:fillForm", {
       inputElementIdentifier,
-      loginFormOrigin,
+      walletFormOrigin,
       originMatches,
-      logins: jsLogins,
+      wallets: jsWallets,
       recipes,
       style,
     });
   }
 
   /**
-   * Send relevant data (e.g. logins and recipes) to the child process (LoginManagerChild).
+   * Send relevant data (e.g. wallets and recipes) to the child process (WalletManagerChild).
    */
-  async sendLoginDataToChild(
+  async sendWalletDataToChild(
     formOrigin,
     actionOrigin,
     { guid, showPrimaryPassword }
   ) {
     const recipes = await this.#getRecipesForHost(formOrigin);
 
-    if (!showPrimaryPassword && !Services.logins.isLoggedIn) {
-      return { logins: [], recipes };
+    if (!showPrimaryPassword && !Services.wallets.isLoggedIn) {
+      return { wallets: [], recipes };
     }
 
     // If we're currently displaying a primary password prompt, defer
     // processing this form until the user handles the prompt.
-    if (Services.logins.uiBusy) {
+    if (Services.wallets.uiBusy) {
       lazy.log(
-        "UI is busy. Deferring sendLoginDataToChild for form: ",
+        "UI is busy. Deferring sendWalletDataToChild for form: ",
         formOrigin
       );
 
@@ -633,16 +633,16 @@ export class LoginManagerParent extends JSWindowActorParent {
         ]),
 
         observe(_subject, topic, _data) {
-          lazy.log("Got deferred sendLoginDataToChild notification:", topic);
+          lazy.log("Got deferred sendWalletDataToChild notification:", topic);
           // Only run observer once.
-          Services.obs.removeObserver(this, "passwordmgr-crypto-login");
-          Services.obs.removeObserver(this, "passwordmgr-crypto-loginCanceled");
-          if (topic == "passwordmgr-crypto-loginCanceled") {
-            uiBusyPromiseResolve({ logins: [], recipes });
+          Services.obs.removeObserver(this, "passwordmgr-crypto-wallet");
+          Services.obs.removeObserver(this, "passwordmgr-crypto-walletCanceled");
+          if (topic == "passwordmgr-crypto-walletCanceled") {
+            uiBusyPromiseResolve({ wallets: [], recipes });
             return;
           }
 
-          const result = self.sendLoginDataToChild(formOrigin, actionOrigin, {
+          const result = self.sendWalletDataToChild(formOrigin, actionOrigin, {
             showPrimaryPassword,
           });
           uiBusyPromiseResolve(result);
@@ -654,47 +654,47 @@ export class LoginManagerParent extends JSWindowActorParent {
       // never return). We should guarantee that at least one of these
       // will fire.
       // See bug XXX.
-      Services.obs.addObserver(observer, "passwordmgr-crypto-login");
-      Services.obs.addObserver(observer, "passwordmgr-crypto-loginCanceled");
+      Services.obs.addObserver(observer, "passwordmgr-crypto-wallet");
+      Services.obs.addObserver(observer, "passwordmgr-crypto-walletCanceled");
 
       return uiBusyPromise;
     }
 
     // Autocomplete results do not need to match actionOrigin or exact origin.
-    let logins = null;
+    let wallets = null;
     if (guid) {
-      logins = await Services.logins.searchLoginsAsync({
+      wallets = await Services.wallets.searchWalletsAsync({
         guid,
         origin: formOrigin,
       });
     } else {
       let relatedRealmsOrigins = [];
-      if (lazy.LoginHelper.relatedRealmsEnabled) {
+      if (lazy.WalletHelper.relatedRealmsEnabled) {
         relatedRealmsOrigins =
-          await lazy.LoginRelatedRealmsParent.findRelatedRealms(formOrigin);
+          await lazy.WalletRelatedRealmsParent.findRelatedRealms(formOrigin);
       }
-      logins = await LoginManagerParent.searchAndDedupeLogins(formOrigin, {
+      wallets = await WalletManagerParent.searchAndDedupeWallets(formOrigin, {
         formActionOrigin: actionOrigin,
         ignoreActionAndRealm: true,
         acceptDifferentSubdomains:
-          lazy.LoginHelper.includeOtherSubdomainsInLookup,
+          lazy.WalletHelper.includeOtherSubdomainsInLookup,
         relatedRealms: relatedRealmsOrigins,
       });
 
-      if (lazy.LoginHelper.relatedRealmsEnabled) {
+      if (lazy.WalletHelper.relatedRealmsEnabled) {
         lazy.debug(
-          "Adding related logins on page load",
-          logins.map(l => l.origin)
+          "Adding related wallets on page load",
+          wallets.map(l => l.origin)
         );
       }
     }
-    lazy.log(`Deduped ${logins.length} logins.`);
-    // Convert the array of nsILoginInfo to vanilla JS objects since nsILoginInfo
+    lazy.log(`Deduped ${wallets.length} wallets.`);
+    // Convert the array of nsIWalletInfo to vanilla JS objects since nsIWalletInfo
     // doesn't support structured cloning.
-    let jsLogins = lazy.LoginHelper.loginsToVanillaObjects(logins);
+    let jsWallets = lazy.WalletHelper.walletsToVanillaObjects(wallets);
     return {
-      importable: await getImportableLogins(formOrigin),
-      logins: jsLogins,
+      importable: await getImportableWallets(formOrigin),
+      wallets: jsWallets,
       recipes,
     };
   }
@@ -716,31 +716,31 @@ export class LoginManagerParent extends JSWindowActorParent {
     // nsIAutoCompleteResult.
 
     // Cancel if the primary password prompt is already showing or we unsuccessfully prompted for it too recently.
-    if (!Services.logins.isLoggedIn) {
-      if (Services.logins.uiBusy) {
+    if (!Services.wallets.isLoggedIn) {
+      if (Services.wallets.uiBusy) {
         lazy.log(
-          "Not searching logins for autocomplete since the primary password prompt is already showing."
+          "Not searching wallets for autocomplete since the primary password prompt is already showing."
         );
-        // Return an empty array to make LoginManagerChild clear the
+        // Return an empty array to make WalletManagerChild clear the
         // outstanding request it has temporarily saved.
-        return { logins: [] };
+        return { wallets: [] };
       }
 
-      const timeDiff = Date.now() - gLastMPLoginCancelled;
-      if (timeDiff < LoginManagerParent._repromptTimeout) {
+      const timeDiff = Date.now() - gLastMPWalletCancelled;
+      if (timeDiff < WalletManagerParent._repromptTimeout) {
         lazy.log(
-          `Not searching logins for autocomplete since the primary password prompt was last cancelled ${Math.round(
+          `Not searching wallets for autocomplete since the primary password prompt was last cancelled ${Math.round(
             timeDiff / 1000
           )} seconds ago.`
         );
-        // Return an empty array to make LoginManagerChild clear the
+        // Return an empty array to make WalletManagerChild clear the
         // outstanding request it has temporarily saved.
-        return { logins: [] };
+        return { wallets: [] };
       }
     }
 
     const searchStringLower = searchString.toLowerCase();
-    let logins;
+    let wallets;
     if (
       previousResult &&
       searchStringLower.startsWith(previousResult.searchString.toLowerCase())
@@ -749,25 +749,25 @@ export class LoginManagerParent extends JSWindowActorParent {
 
       // We have a list of results for a shorter search string, so just
       // filter them further based on the new search string.
-      logins = lazy.LoginHelper.vanillaObjectsToLogins(previousResult.logins);
+      wallets = lazy.WalletHelper.vanillaObjectsToWallets(previousResult.wallets);
     } else {
       lazy.log("Creating new autocomplete search result.");
       let relatedRealmsOrigins = [];
-      if (lazy.LoginHelper.relatedRealmsEnabled) {
+      if (lazy.WalletHelper.relatedRealmsEnabled) {
         relatedRealmsOrigins =
-          await lazy.LoginRelatedRealmsParent.findRelatedRealms(formOrigin);
+          await lazy.WalletRelatedRealmsParent.findRelatedRealms(formOrigin);
       }
       // Autocomplete results do not need to match actionOrigin or exact origin.
-      logins = await LoginManagerParent.searchAndDedupeLogins(formOrigin, {
+      wallets = await WalletManagerParent.searchAndDedupeWallets(formOrigin, {
         formActionOrigin: actionOrigin,
         ignoreActionAndRealm: true,
         acceptDifferentSubdomains:
-          lazy.LoginHelper.includeOtherSubdomainsInLookup,
+          lazy.WalletHelper.includeOtherSubdomainsInLookup,
         relatedRealms: relatedRealmsOrigins,
       });
     }
 
-    const matchingLogins = logins.filter(fullMatch => {
+    const matchingWallets = wallets.filter(fullMatch => {
       // Remove results that are too short, or have different prefix.
       // Also don't offer empty usernames as possible results except
       // for on password fields.
@@ -784,32 +784,32 @@ export class LoginManagerParent extends JSWindowActorParent {
     let willAutoSaveGeneratedPassword = false;
     if (
       // If MP was cancelled above, don't try to offer pwgen or access storage again (causing a new MP prompt).
-      Services.logins.isLoggedIn &&
+      Services.wallets.isLoggedIn &&
       (forcePasswordGeneration ||
         (isProbablyANewPasswordField &&
-          Services.logins.getLoginSavingEnabled(formOrigin)))
+          Services.wallets.getWalletSavingEnabled(formOrigin)))
     ) {
       // We either generate a new password here, or grab the previously generated password
       // if we're still on the same domain when we generated the password
       generatedPassword = await this.getGeneratedPassword({ inputMaxLength });
-      const potentialConflictingLogins =
-        await Services.logins.searchLoginsAsync({
+      const potentialConflictingWallets =
+        await Services.wallets.searchWalletsAsync({
           origin: formOrigin,
           formActionOrigin: actionOrigin,
           httpRealm: null,
         });
-      willAutoSaveGeneratedPassword = !potentialConflictingLogins.find(
-        login => login.username == ""
+      willAutoSaveGeneratedPassword = !potentialConflictingWallets.find(
+        wallet => wallet.username == ""
       );
     }
 
-    // Convert the array of nsILoginInfo to vanilla JS objects since nsILoginInfo
+    // Convert the array of nsIWalletInfo to vanilla JS objects since nsIWalletInfo
     // doesn't support structured cloning.
-    let jsLogins = lazy.LoginHelper.loginsToVanillaObjects(matchingLogins);
+    let jsWallets = lazy.WalletHelper.walletsToVanillaObjects(matchingWallets);
 
     return {
       generatedPassword,
-      importable: await getImportableLogins(formOrigin),
+      importable: await getImportableWallets(formOrigin),
       autocompleteItems: hasBeenTypePassword
         ? []
         : await lazy.FirefoxRelay.autocompleteItemsAsync({
@@ -817,7 +817,7 @@ export class LoginManagerParent extends JSWindowActorParent {
             scenarioName,
             hasInput: !!searchStringLower.length,
           }),
-      logins: jsLogins,
+      wallets: jsWallets,
       willAutoSaveGeneratedPassword,
     };
   }
@@ -844,9 +844,9 @@ export class LoginManagerParent extends JSWindowActorParent {
 
   async getGeneratedPassword({ inputMaxLength } = {}) {
     if (
-      !lazy.LoginHelper.enabled ||
-      !lazy.LoginHelper.generationAvailable ||
-      !lazy.LoginHelper.generationEnabled
+      !lazy.WalletHelper.enabled ||
+      !lazy.WalletHelper.generationAvailable ||
+      !lazy.WalletHelper.generationEnabled
     ) {
       return null;
     }
@@ -870,14 +870,14 @@ export class LoginManagerParent extends JSWindowActorParent {
       edited: false,
       filled: false,
       /**
-       * GUID of a login that was already saved for this generated password that
+       * GUID of a wallet that was already saved for this generated password that
        * will be automatically updated with password changes. This shouldn't be
-       * an existing saved login for the site unless the user chose to
+       * an existing saved wallet for the site unless the user chose to
        * merge/overwrite via a doorhanger.
        */
       storageGUID: null,
     };
-    if (lazy.LoginHelper.improvedPasswordRulesEnabled) {
+    if (lazy.WalletHelper.improvedPasswordRulesEnabled) {
       generatedPW.value = await lazy.PasswordRulesManager.generatePassword(
         browsingContext.currentWindowGlobal.documentURI,
         { inputMaxLength }
@@ -892,7 +892,7 @@ export class LoginManagerParent extends JSWindowActorParent {
     if (!gGeneratedPasswordObserver.addedObserver) {
       Services.obs.addObserver(
         gGeneratedPasswordObserver,
-        "passwordmgr-autosaved-login-merged"
+        "passwordmgr-autosaved-wallet-merged"
       );
       Services.obs.addObserver(
         gGeneratedPasswordObserver,
@@ -942,34 +942,34 @@ export class LoginManagerParent extends JSWindowActorParent {
     return lazy.prompterSvc;
   }
 
-  // Look for an existing login that matches the form login.
-  #findSameLogin(logins, formLogin) {
-    return logins.find(login => {
+  // Look for an existing wallet that matches the form wallet.
+  #findSameWallet(wallets, formWallet) {
+    return wallets.find(wallet => {
       let same;
 
-      // If one login has a username but the other doesn't, ignore
+      // If one wallet has a username but the other doesn't, ignore
       // the username when comparing and only match if they have the
-      // same password. Otherwise, compare the logins and match even
+      // same password. Otherwise, compare the wallets and match even
       // if the passwords differ.
-      if (!login.username && formLogin.username) {
-        let restoreMe = formLogin.username;
-        formLogin.username = "";
-        same = lazy.LoginHelper.doLoginsMatch(formLogin, login, {
+      if (!wallet.username && formWallet.username) {
+        let restoreMe = formWallet.username;
+        formWallet.username = "";
+        same = lazy.WalletHelper.doWalletsMatch(formWallet, wallet, {
           ignorePassword: false,
-          ignoreSchemes: lazy.LoginHelper.schemeUpgrades,
+          ignoreSchemes: lazy.WalletHelper.schemeUpgrades,
         });
-        formLogin.username = restoreMe;
-      } else if (!formLogin.username && login.username) {
-        formLogin.username = login.username;
-        same = lazy.LoginHelper.doLoginsMatch(formLogin, login, {
+        formWallet.username = restoreMe;
+      } else if (!formWallet.username && wallet.username) {
+        formWallet.username = wallet.username;
+        same = lazy.WalletHelper.doWalletsMatch(formWallet, wallet, {
           ignorePassword: false,
-          ignoreSchemes: lazy.LoginHelper.schemeUpgrades,
+          ignoreSchemes: lazy.WalletHelper.schemeUpgrades,
         });
-        formLogin.username = ""; // we know it's always blank.
+        formWallet.username = ""; // we know it's always blank.
       } else {
-        same = lazy.LoginHelper.doLoginsMatch(formLogin, login, {
+        same = lazy.WalletHelper.doWalletsMatch(formWallet, wallet, {
           ignorePassword: true,
-          ignoreSchemes: lazy.LoginHelper.schemeUpgrades,
+          ignoreSchemes: lazy.WalletHelper.schemeUpgrades,
         });
       }
 
@@ -983,28 +983,28 @@ export class LoginManagerParent extends JSWindowActorParent {
     {
       browsingContextId,
       formActionOrigin,
-      autoFilledLoginGuid,
+      autoFilledWalletGuid,
       usernameField,
       newPasswordField,
       oldPasswordField,
       dismissedPrompt,
     }
   ) {
-    function recordLoginUse(login) {
-      Services.logins.recordPasswordUse(
-        login,
+    function recordWalletUse(wallet) {
+      Services.wallets.recordPasswordUse(
+        wallet,
         browser && lazy.PrivateBrowsingUtils.isBrowserPrivate(browser),
-        login.username ? "form_login" : "form_password",
-        !!autoFilledLoginGuid
+        wallet.username ? "form_wallet" : "form_password",
+        !!autoFilledWalletGuid
       );
     }
 
     // If password storage is disabled, bail out.
-    if (!lazy.LoginHelper.storageEnabled) {
+    if (!lazy.WalletHelper.storageEnabled) {
       return;
     }
 
-    if (!Services.logins.getLoginSavingEnabled(formOrigin)) {
+    if (!Services.wallets.getWalletSavingEnabled(formOrigin)) {
       lazy.log(
         `Form submission ignored because saving is disabled for origin: ${formOrigin}.`
       );
@@ -1015,7 +1015,7 @@ export class LoginManagerParent extends JSWindowActorParent {
     let framePrincipalOrigin =
       browsingContext.currentWindowGlobal.documentPrincipal.origin;
 
-    let formLogin = new LoginInfo(
+    let formWallet = new WalletInfo(
       formOrigin,
       formActionOrigin,
       null,
@@ -1024,33 +1024,33 @@ export class LoginManagerParent extends JSWindowActorParent {
       usernameField?.name ?? "",
       newPasswordField.name
     );
-    // we don't auto-save logins on form submit
+    // we don't auto-save wallets on form submit
     let notifySaved = false;
 
-    if (autoFilledLoginGuid) {
-      let loginsForGuid = await Services.logins.searchLoginsAsync({
-        guid: autoFilledLoginGuid,
+    if (autoFilledWalletGuid) {
+      let walletsForGuid = await Services.wallets.searchWalletsAsync({
+        guid: autoFilledWalletGuid,
         origin: formOrigin, // Ignored outside of GV.
       });
       if (
-        loginsForGuid.length == 1 &&
-        loginsForGuid[0].password == formLogin.password &&
-        (!formLogin.username || // Also cover cases where only the password is requested.
-          loginsForGuid[0].username == formLogin.username)
+        walletsForGuid.length == 1 &&
+        walletsForGuid[0].password == formWallet.password &&
+        (!formWallet.username || // Also cover cases where only the password is requested.
+          walletsForGuid[0].username == formWallet.username)
       ) {
         lazy.log(
-          "The filled login matches the form submission. Nothing to change."
+          "The filled wallet matches the form submission. Nothing to change."
         );
-        recordLoginUse(loginsForGuid[0]);
+        recordWalletUse(walletsForGuid[0]);
         return;
       }
     }
 
-    let existingLogin = null;
-    let canMatchExistingLogin = true;
-    // Below here we have one login per hostPort + action + username with the
+    let existingWallet = null;
+    let canMatchExistingWallet = true;
+    // Below here we have one wallet per hostPort + action + username with the
     // matching scheme being preferred.
-    const logins = await LoginManagerParent.searchAndDedupeLogins(formOrigin, {
+    const wallets = await WalletManagerParent.searchAndDedupeWallets(formOrigin, {
       formActionOrigin,
     });
 
@@ -1060,93 +1060,93 @@ export class LoginManagerParent extends JSWindowActorParent {
 
     // If we didn't find a username field, but seem to be changing a
     // password, allow the user to select from a list of applicable
-    // logins to update the password for.
-    if (!usernameField && oldPasswordField && logins.length) {
-      if (logins.length == 1) {
-        existingLogin = logins[0];
+    // wallets to update the password for.
+    if (!usernameField && oldPasswordField && wallets.length) {
+      if (wallets.length == 1) {
+        existingWallet = wallets[0];
 
-        if (existingLogin.password == formLogin.password) {
-          recordLoginUse(existingLogin);
+        if (existingWallet.password == formWallet.password) {
+          recordWalletUse(existingWallet);
           lazy.log(
             "Not prompting to save/change since we have no username and the only saved password matches the new password."
           );
           return;
         }
 
-        formLogin.username = existingLogin.username;
-        formLogin.usernameField = existingLogin.usernameField;
+        formWallet.username = existingWallet.username;
+        formWallet.usernameField = existingWallet.usernameField;
       } else if (!generatedPW || generatedPW.value != newPasswordField.value) {
         // Note: It's possible that that we already have the correct u+p saved
         // but since we don't have the username, we don't know if the user is
         // changing a second account to the new password so we ask anyways.
-        canMatchExistingLogin = false;
+        canMatchExistingWallet = false;
       }
     }
 
-    if (canMatchExistingLogin && !existingLogin) {
-      existingLogin = this.#findSameLogin(logins, formLogin);
+    if (canMatchExistingWallet && !existingWallet) {
+      existingWallet = this.#findSameWallet(wallets, formWallet);
     }
 
-    const promptBrowser = lazy.LoginHelper.getBrowserForPrompt(browser);
+    const promptBrowser = lazy.WalletHelper.getBrowserForPrompt(browser);
     const prompter = this._getPrompter(browser);
 
-    if (!canMatchExistingLogin) {
+    if (!canMatchExistingWallet) {
       prompter.promptToChangePasswordWithUsernames(
         promptBrowser,
-        logins,
-        formLogin
+        wallets,
+        formWallet
       );
       return;
     }
 
-    if (existingLogin) {
-      lazy.log("Found an existing login matching this form submission.");
+    if (existingWallet) {
+      lazy.log("Found an existing wallet matching this form submission.");
 
       // Change password if needed.
-      if (existingLogin.password != formLogin.password) {
+      if (existingWallet.password != formWallet.password) {
         lazy.log("Passwords differ, prompting to change.");
         prompter.promptToChangePassword(
           promptBrowser,
-          existingLogin,
-          formLogin,
+          existingWallet,
+          formWallet,
           dismissedPrompt,
           notifySaved,
           autoSavedStorageGUID,
-          autoFilledLoginGuid,
+          autoFilledWalletGuid,
           this.possibleValues
         );
-      } else if (!existingLogin.username && formLogin.username) {
+      } else if (!existingWallet.username && formWallet.username) {
         lazy.log("Empty username update, prompting to change.");
         prompter.promptToChangePassword(
           promptBrowser,
-          existingLogin,
-          formLogin,
+          existingWallet,
+          formWallet,
           dismissedPrompt,
           notifySaved,
           autoSavedStorageGUID,
-          autoFilledLoginGuid,
+          autoFilledWalletGuid,
           this.possibleValues
         );
       } else {
-        recordLoginUse(existingLogin);
+        recordWalletUse(existingWallet);
       }
 
       return;
     }
 
-    // Prompt user to save login (via dialog or notification bar)
+    // Prompt user to save wallet (via dialog or notification bar)
     prompter.promptToSavePassword(
       promptBrowser,
-      formLogin,
+      formWallet,
       dismissedPrompt,
       notifySaved,
-      autoFilledLoginGuid,
+      autoFilledWalletGuid,
       this.possibleValues
     );
   }
 
   /**
-   * Performs validation of inputs against already-saved logins in order to determine whether and
+   * Performs validation of inputs against already-saved wallets in order to determine whether and
    * how these inputs can be stored. Depending on validation, will either no-op or show a 'save'
    * or 'update' dialog to the user.
    *
@@ -1158,7 +1158,7 @@ export class LoginManagerParent extends JSWindowActorParent {
    * @param {Element} browser
    * @param {string} formOrigin
    * @param {string} options.formActionOrigin
-   * @param {string?} options.autoFilledLoginGuid
+   * @param {string?} options.autoFilledWalletGuid
    * @param {Object} options.newPasswordField
    * @param {Object?} options.usernameField
    * @param {Element?} options.oldPasswordField
@@ -1170,7 +1170,7 @@ export class LoginManagerParent extends JSWindowActorParent {
     formOrigin,
     {
       formActionOrigin,
-      autoFilledLoginGuid,
+      autoFilledWalletGuid,
       newPasswordField,
       usernameField = null,
       oldPasswordField,
@@ -1182,11 +1182,11 @@ export class LoginManagerParent extends JSWindowActorParent {
     );
 
     // If password storage is disabled, bail out.
-    if (!lazy.LoginHelper.storageEnabled) {
+    if (!lazy.WalletHelper.storageEnabled) {
       return;
     }
 
-    if (!Services.logins.getLoginSavingEnabled(formOrigin)) {
+    if (!Services.wallets.getWalletSavingEnabled(formOrigin)) {
       // No UI should be shown to offer generation in this case but a user may
       // disable saving for the site after already filling one and they may then
       // edit it.
@@ -1209,7 +1209,7 @@ export class LoginManagerParent extends JSWindowActorParent {
       return;
     }
 
-    if (!triggeredByFillingGenerated && !Services.logins.isLoggedIn) {
+    if (!triggeredByFillingGenerated && !Services.wallets.isLoggedIn) {
       // Don't show the dismissed doorhanger on "input" or "change" events
       // when the Primary Password is locked
       lazy.log(
@@ -1223,7 +1223,7 @@ export class LoginManagerParent extends JSWindowActorParent {
 
     lazy.log("Got framePrincipalOrigin: ", framePrincipalOrigin);
 
-    let formLogin = new LoginInfo(
+    let formWallet = new WalletInfo(
       formOrigin,
       formActionOrigin,
       null,
@@ -1232,45 +1232,45 @@ export class LoginManagerParent extends JSWindowActorParent {
       usernameField?.name ?? "",
       newPasswordField.name
     );
-    let existingLogin = null;
-    let canMatchExistingLogin = true;
-    let shouldAutoSaveLogin = triggeredByFillingGenerated;
-    let autoSavedLogin = null;
+    let existingWallet = null;
+    let canMatchExistingWallet = true;
+    let shouldAutoSaveWallet = triggeredByFillingGenerated;
+    let autoSavedWallet = null;
     let notifySaved = false;
 
-    if (autoFilledLoginGuid) {
-      let [matchedLogin] = await Services.logins.searchLoginsAsync({
-        guid: autoFilledLoginGuid,
+    if (autoFilledWalletGuid) {
+      let [matchedWallet] = await Services.wallets.searchWalletsAsync({
+        guid: autoFilledWalletGuid,
         origin: formOrigin, // Ignored outside of GV.
       });
       if (
-        matchedLogin &&
-        matchedLogin.password == formLogin.password &&
-        (!formLogin.username || // Also cover cases where only the password is requested.
-          matchedLogin.username == formLogin.username)
+        matchedWallet &&
+        matchedWallet.password == formWallet.password &&
+        (!formWallet.username || // Also cover cases where only the password is requested.
+          matchedWallet.username == formWallet.username)
       ) {
         lazy.log(
-          "The filled login matches the changed fields. Nothing to change."
+          "The filled wallet matches the changed fields. Nothing to change."
         );
         // We may want to update an existing doorhanger
-        existingLogin = matchedLogin;
+        existingWallet = matchedWallet;
       }
     }
 
     let generatedPW =
       gGeneratedPasswordsByPrincipalOrigin.get(framePrincipalOrigin);
 
-    // Below here we have one login per hostPort + action + username with the
+    // Below here we have one wallet per hostPort + action + username with the
     // matching scheme being preferred.
-    let logins = await LoginManagerParent.searchAndDedupeLogins(formOrigin, {
+    let wallets = await WalletManagerParent.searchAndDedupeWallets(formOrigin, {
       formActionOrigin,
     });
     // only used in the generated pw case where we auto-save
-    let formLoginWithoutUsername;
+    let formWalletWithoutUsername;
 
     if (triggeredByFillingGenerated && generatedPW) {
       lazy.log("Got cached generatedPW.");
-      formLoginWithoutUsername = new LoginInfo(
+      formWalletWithoutUsername = new WalletInfo(
         formOrigin,
         formActionOrigin,
         null,
@@ -1311,41 +1311,41 @@ export class LoginManagerParent extends JSWindowActorParent {
         generatedPW.filled = true;
       }
 
-      // We may have already autosaved this login
+      // We may have already autosaved this wallet
       // Note that it could have been saved in a totally different tab in the session.
       if (generatedPW.storageGUID) {
-        [autoSavedLogin] = await Services.logins.searchLoginsAsync({
+        [autoSavedWallet] = await Services.wallets.searchWalletsAsync({
           guid: generatedPW.storageGUID,
           origin: formOrigin, // Ignored outside of GV.
         });
 
-        if (autoSavedLogin) {
-          lazy.log("login to change is the auto-saved login.");
-          existingLogin = autoSavedLogin;
+        if (autoSavedWallet) {
+          lazy.log("wallet to change is the auto-saved wallet.");
+          existingWallet = autoSavedWallet;
         }
-        // The generated password login may have been deleted in the meantime.
-        // Proceed to maybe save a new login below.
+        // The generated password wallet may have been deleted in the meantime.
+        // Proceed to maybe save a new wallet below.
       }
       generatedPW.value = newPasswordField.value;
 
-      if (!existingLogin) {
-        lazy.log("Did not match generated-password login.");
+      if (!existingWallet) {
+        lazy.log("Did not match generated-password wallet.");
 
-        // Check if we already have a login saved for this site since we don't want to overwrite it in
+        // Check if we already have a wallet saved for this site since we don't want to overwrite it in
         // case the user still needs their old password to successfully complete a password change.
-        let matchedLogin = logins.find(login =>
-          formLoginWithoutUsername.matches(login, true)
+        let matchedWallet = wallets.find(wallet =>
+          formWalletWithoutUsername.matches(wallet, true)
         );
-        if (matchedLogin) {
-          shouldAutoSaveLogin = false;
-          if (matchedLogin.password == formLoginWithoutUsername.password) {
-            // This login is already saved so show no new UI.
+        if (matchedWallet) {
+          shouldAutoSaveWallet = false;
+          if (matchedWallet.password == formWalletWithoutUsername.password) {
+            // This wallet is already saved so show no new UI.
             // We may want to update an existing doorhanger though...
-            lazy.log("Matching login already saved.");
-            existingLogin = matchedLogin;
+            lazy.log("Matching wallet already saved.");
+            existingWallet = matchedWallet;
           }
           lazy.log(
-            "_onPasswordEditedOrGenerated: Login with empty username already saved for this site."
+            "_onPasswordEditedOrGenerated: Wallet with empty username already saved for this site."
           );
         }
       }
@@ -1353,19 +1353,19 @@ export class LoginManagerParent extends JSWindowActorParent {
 
     // If we didn't find a username field, but seem to be changing a
     // password, use the first match if there is only one
-    // If there's more than one we'll prompt to save with the initial formLogin
+    // If there's more than one we'll prompt to save with the initial formWallet
     // and let the doorhanger code resolve this
     if (
       !triggeredByFillingGenerated &&
-      !existingLogin &&
+      !existingWallet &&
       !usernameField &&
       oldPasswordField &&
-      logins.length
+      wallets.length
     ) {
-      if (logins.length == 1) {
-        existingLogin = logins[0];
+      if (wallets.length == 1) {
+        existingWallet = wallets[0];
 
-        if (existingLogin.password == formLogin.password) {
+        if (existingWallet.password == formWallet.password) {
           lazy.log(
             "Not prompting to save/change since we have no username and the " +
               "only saved password matches the new password."
@@ -1373,102 +1373,102 @@ export class LoginManagerParent extends JSWindowActorParent {
           return;
         }
 
-        formLogin.username = existingLogin.username;
-        formLogin.usernameField = existingLogin.usernameField;
+        formWallet.username = existingWallet.username;
+        formWallet.usernameField = existingWallet.usernameField;
       } else if (!generatedPW || generatedPW.value != newPasswordField.value) {
         // Note: It's possible that that we already have the correct u+p saved
         // but since we don't have the username, we don't know if the user is
         // changing a second account to the new password so we ask anyways.
-        canMatchExistingLogin = false;
+        canMatchExistingWallet = false;
       }
     }
 
-    if (canMatchExistingLogin && !existingLogin) {
-      existingLogin = this.#findSameLogin(logins, formLogin);
-      if (existingLogin) {
-        lazy.log("Matched saved login.");
+    if (canMatchExistingWallet && !existingWallet) {
+      existingWallet = this.#findSameWallet(wallets, formWallet);
+      if (existingWallet) {
+        lazy.log("Matched saved wallet.");
       }
     }
 
-    if (shouldAutoSaveLogin) {
+    if (shouldAutoSaveWallet) {
       if (
-        existingLogin &&
-        existingLogin == autoSavedLogin &&
-        existingLogin.password !== formLogin.password
+        existingWallet &&
+        existingWallet == autoSavedWallet &&
+        existingWallet.password !== formWallet.password
       ) {
-        lazy.log("Updating auto-saved login.");
+        lazy.log("Updating auto-saved wallet.");
 
-        Services.logins.modifyLogin(
-          existingLogin,
-          lazy.LoginHelper.newPropertyBag({
-            password: formLogin.password,
+        Services.wallets.modifyWallet(
+          existingWallet,
+          lazy.WalletHelper.newPropertyBag({
+            password: formWallet.password,
           })
         );
         notifySaved = true;
-        // Update `existingLogin` with the new password if modifyLogin didn't
+        // Update `existingWallet` with the new password if modifyWallet didn't
         // throw so that the prompts later uses the new password.
-        existingLogin.password = formLogin.password;
-      } else if (!autoSavedLogin) {
-        lazy.log("Auto-saving new login with empty username.");
-        existingLogin = await Services.logins.addLoginAsync(
-          formLoginWithoutUsername
+        existingWallet.password = formWallet.password;
+      } else if (!autoSavedWallet) {
+        lazy.log("Auto-saving new wallet with empty username.");
+        existingWallet = await Services.wallets.addWalletAsync(
+          formWalletWithoutUsername
         );
         // Remember the GUID where we saved the generated password so we can update
-        // the login if the user later edits the generated password.
-        generatedPW.storageGUID = existingLogin.guid;
+        // the wallet if the user later edits the generated password.
+        generatedPW.storageGUID = existingWallet.guid;
         notifySaved = true;
       }
     } else {
-      lazy.log("Not auto-saving this login.");
+      lazy.log("Not auto-saving this wallet.");
     }
 
     const prompter = this._getPrompter(browser);
-    const promptBrowser = lazy.LoginHelper.getBrowserForPrompt(browser);
+    const promptBrowser = lazy.WalletHelper.getBrowserForPrompt(browser);
 
-    if (existingLogin) {
-      // Show a change doorhanger to allow modifying an already-saved login
+    if (existingWallet) {
+      // Show a change doorhanger to allow modifying an already-saved wallet
       // e.g. to add a username or update the password.
       let autoSavedStorageGUID = "";
       if (
         generatedPW &&
-        generatedPW.value == existingLogin.password &&
-        generatedPW.storageGUID == existingLogin.guid
+        generatedPW.value == existingWallet.password &&
+        generatedPW.storageGUID == existingWallet.guid
       ) {
         autoSavedStorageGUID = generatedPW.storageGUID;
       }
 
       // Change password if needed.
       if (
-        (shouldAutoSaveLogin && !formLogin.username) ||
-        existingLogin.password != formLogin.password
+        (shouldAutoSaveWallet && !formWallet.username) ||
+        existingWallet.password != formWallet.password
       ) {
         lazy.log(
           `promptToChangePassword with autoSavedStorageGUID: ${autoSavedStorageGUID}`
         );
         prompter.promptToChangePassword(
           promptBrowser,
-          existingLogin,
-          formLogin,
+          existingWallet,
+          formWallet,
           true, // dismissed prompt
           notifySaved,
-          autoSavedStorageGUID, // autoSavedLoginGuid
-          autoFilledLoginGuid,
+          autoSavedStorageGUID, // autoSavedWalletGuid
+          autoFilledWalletGuid,
           this.possibleValues
         );
-      } else if (!existingLogin.username && formLogin.username) {
+      } else if (!existingWallet.username && formWallet.username) {
         lazy.log("Empty username update, prompting to change.");
         prompter.promptToChangePassword(
           promptBrowser,
-          existingLogin,
-          formLogin,
+          existingWallet,
+          formWallet,
           true, // dismissed prompt
           notifySaved,
-          autoSavedStorageGUID, // autoSavedLoginGuid
-          autoFilledLoginGuid,
+          autoSavedStorageGUID, // autoSavedWalletGuid
+          autoFilledWalletGuid,
           this.possibleValues
         );
       } else {
-        lazy.log("No change to existing login.");
+        lazy.log("No change to existing wallet.");
         // is there a doorhanger we should update?
         let popupNotifications = promptBrowser.ownerGlobal.PopupNotifications;
         let notif = popupNotifications.getNotification("password", browser);
@@ -1480,35 +1480,35 @@ export class LoginManagerParent extends JSWindowActorParent {
         if (notif && notif.dismissed) {
           prompter.promptToChangePassword(
             promptBrowser,
-            existingLogin,
-            formLogin,
+            existingWallet,
+            formWallet,
             true, // dismissed prompt
             notifySaved,
-            autoSavedStorageGUID, // autoSavedLoginGuid
-            autoFilledLoginGuid,
+            autoSavedStorageGUID, // autoSavedWalletGuid
+            autoFilledWalletGuid,
             this.possibleValues
           );
         }
       }
       return;
     }
-    lazy.log("No matching login to save/update.");
+    lazy.log("No matching wallet to save/update.");
     prompter.promptToSavePassword(
       promptBrowser,
-      formLogin,
+      formWallet,
       true, // dismissed prompt
       notifySaved,
-      autoFilledLoginGuid,
+      autoFilledWalletGuid,
       this.possibleValues
     );
   }
 
   static get recipeParentPromise() {
     if (!gRecipeManager) {
-      const { LoginRecipesParent } = ChromeUtils.importESModule(
-        "resource://gre/modules/LoginRecipes.sys.mjs"
+      const { WalletRecipesParent } = ChromeUtils.importESModule(
+        "resource://gre/modules/WalletRecipes.sys.mjs"
       );
-      gRecipeManager = new LoginRecipesParent({
+      gRecipeManager = new WalletRecipesParent({
         defaults: Services.prefs.getStringPref("signon.recipes.path"),
       });
     }
@@ -1517,10 +1517,10 @@ export class LoginManagerParent extends JSWindowActorParent {
   }
 }
 
-LoginManagerParent.SUGGEST_IMPORT_DEBOUNCE_MS = 10000;
+WalletManagerParent.SUGGEST_IMPORT_DEBOUNCE_MS = 10000;
 
 XPCOMUtils.defineLazyPreferenceGetter(
-  LoginManagerParent,
+  WalletManagerParent,
   "_repromptTimeout",
   "signon.masterPasswordReprompt.timeout_ms",
   900000

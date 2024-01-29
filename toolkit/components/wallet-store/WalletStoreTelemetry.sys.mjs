@@ -5,10 +5,10 @@
 /**
  * Provides the logic for recording all password manager related telemetry data.
  */
-export class LoginManagerTelemetry {
+export class WalletManagerTelemetry {
   static recordAutofillResult(result) {
     Glean.pwmgr.formAutofillResult[result].add(1);
-    LoginManagerLegacyTelemetry.recordAutofillResult(result);
+    WalletManagerLegacyTelemetry.recordAutofillResult(result);
   }
 }
 
@@ -19,17 +19,17 @@ export class LoginManagerTelemetry {
  * Therefore, we need to manually call the Legacy Telemetry API calls in this class.
  * Once we have collected enough data for all probes in the Glean system, we can remove this class and its references.
  */
-class LoginManagerLegacyTelemetry {
+class WalletManagerLegacyTelemetry {
   static HISTOGRAM_AUTOFILL_RESULT = "PWMGR_FORM_AUTOFILL_RESULT";
   static AUTOFILL_RESULT = {
     filled: 0,
     no_password_field: 1,
     password_disabled_readonly: 2,
-    no_logins_fit: 3,
-    no_saved_logins: 4,
+    no_wallets_fit: 3,
+    no_saved_wallets: 4,
     existing_password: 5,
     existing_username: 6,
-    multiple_logins: 7,
+    multiple_wallets: 7,
     no_autofill_forms: 8,
     autocomplete_off: 9,
     insecure: 10,
@@ -40,15 +40,15 @@ class LoginManagerLegacyTelemetry {
   };
 
   static convertToAutofillResultNumber(result) {
-    return LoginManagerLegacyTelemetry.AUTOFILL_RESULT[result];
+    return WalletManagerLegacyTelemetry.AUTOFILL_RESULT[result];
   }
 
   static recordAutofillResult(result) {
     const autofillResultNumber =
-      LoginManagerLegacyTelemetry.convertToAutofillResultNumber(result);
+      WalletManagerLegacyTelemetry.convertToAutofillResultNumber(result);
     Services.telemetry
-      .getHistogramById(LoginManagerLegacyTelemetry.HISTOGRAM_AUTOFILL_RESULT)
+      .getHistogramById(WalletManagerLegacyTelemetry.HISTOGRAM_AUTOFILL_RESULT)
       .add(autofillResultNumber);
   }
 }
-export default LoginManagerTelemetry;
+export default WalletManagerTelemetry;
