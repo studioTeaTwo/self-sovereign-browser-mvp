@@ -33,6 +33,7 @@ gecko_metrics = [
     "toolkit/components/processtools/metrics.yaml",
     "toolkit/components/resistfingerprinting/metrics.yaml",
     "toolkit/components/translations/metrics.yaml",
+    "toolkit/components/wallet-store/metrics.yaml",
     "toolkit/mozapps/extensions/metrics.yaml",
     "xpcom/metrics.yaml",
 ]

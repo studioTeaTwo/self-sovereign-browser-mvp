@@ -3,31 +3,29 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /**
- * LoginManagerStorage implementation for GeckoView
+ * CredentialStorage implementation for GeckoView
  */
 
-import { LoginManagerStorage_json } from "resource://gre/modules/storage-json.sys.mjs";
+import { CredentialStorage_json } from "resource://gre/modules/credential-storage-json.sys.mjs";
 
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  GeckoViewAutocomplete: "resource://gre/modules/GeckoViewAutocomplete.sys.mjs",
-  LoginEntry: "resource://gre/modules/GeckoViewAutocomplete.sys.mjs",
-  LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
+  WalletHelper: "resource://gre/modules/WalletHelper.sys.mjs",
 });
 
-export class LoginManagerStorage extends LoginManagerStorage_json {
+export class CredentialStorage extends CredentialStorage_json {
   static #storage = null;
 
   static create(callback) {
-    if (!LoginManagerStorage.#storage) {
-      LoginManagerStorage.#storage = new LoginManagerStorage();
-      LoginManagerStorage.#storage.initialize().then(callback);
+    if (!CredentialStorage.#storage) {
+      CredentialStorage.#storage = new CredentialStorage();
+      CredentialStorage.#storage.initialize().then(callback);
     } else if (callback) {
       callback();
     }
 
-    return LoginManagerStorage.#storage;
+    return CredentialStorage.#storage;
   }
 
   get _crypto() {
@@ -49,149 +47,77 @@ export class LoginManagerStorage extends LoginManagerStorage_json {
    */
   terminate() {}
 
-  async addLoginsAsync(logins, continueOnDuplicates = false) {
+  async addCredentialsAsync(wallets, continueOnDuplicates = false) {
     throw Components.Exception("", Cr.NS_ERROR_NOT_IMPLEMENTED);
   }
 
-  removeLogin(login) {
+  removeCredential(wallet) {
     throw Components.Exception("", Cr.NS_ERROR_NOT_IMPLEMENTED);
   }
 
-  modifyLogin(oldLogin, newLoginData) {
+  modifyCredential(oldCredential, newCredentialData) {
     throw Components.Exception("", Cr.NS_ERROR_NOT_IMPLEMENTED);
-  }
-
-  recordPasswordUse(login) {
-    lazy.GeckoViewAutocomplete.onLoginPasswordUsed(
-      lazy.LoginEntry.fromLoginInfo(login)
-    );
   }
 
   /**
-   * Returns a promise resolving to an array of all saved logins that can be decrypted.
+   * Returns a promise resolving to an array of all saved wallets that can be decrypted.
    *
-   * @resolve {nsILoginInfo[]}
+   * @resolve {nsICredentialInfo[]}
    */
-  getAllLogins(includeDeleted) {
-    return this._getLoginsAsync({}, includeDeleted);
+  getAllCredentials() {
+    return this._getCredentialsAsync({});
   }
 
-  async searchLoginsAsync(matchData, includeDeleted) {
-    this.log(
-      `Searching for matching saved logins for origin: ${matchData.origin}`
-    );
-    return this._getLoginsAsync(matchData, includeDeleted);
+  async searchCredentialsAsync(matchData) {
+    this.log(`Searching for matching saved wallets`);
+    return this._getCredentialsAsync(matchData);
   }
 
-  _baseHostnameFromOrigin(origin) {
-    if (!origin) {
-      return null;
-    }
-
-    let originURI = Services.io.newURI(origin);
-    try {
-      return Services.eTLD.getBaseDomain(originURI);
-    } catch (ex) {
-      if (ex.result == Cr.NS_ERROR_HOST_IS_IP_ADDRESS) {
-        // `getBaseDomain` cannot handle IP addresses and `nsIURI` cannot return
-        // IPv6 hostnames with the square brackets so use `URL.hostname`.
-        return new URL(origin).hostname;
-      } else if (ex.result == Cr.NS_ERROR_INSUFFICIENT_DOMAIN_LEVELS) {
-        return originURI.asciiHost;
-      }
-      throw ex;
-    }
-  }
-
-  async _getLoginsAsync(matchData, includeDeleted) {
-    let baseHostname = this._baseHostnameFromOrigin(matchData.origin);
-
-    // Query all logins for the eTLD+1 and then filter the logins in _searchLogins
-    // so that we can handle the logic for scheme upgrades, subdomains, etc.
-    // Convert from the new shape to one which supports the legacy getters used
-    // by _searchLogins.
-    let candidateLogins = await lazy.GeckoViewAutocomplete.fetchLogins(
-      baseHostname
-    ).catch(_ => {
-      // No GV delegate is attached.
-    });
-
-    if (!candidateLogins) {
-      // May be undefined if there is no delegate attached to handle the request.
-      // Ignore the request.
-      return [];
-    }
-
+  async _getCredentialsAsync(matchData) {
     let realMatchData = {};
-    let options = {};
-
     if (matchData.guid) {
       // Enforce GUID-based filtering when available, since the origin of the
-      // login may not match the origin of the form in the case of scheme
+      // wallet may not match the origin of the form in the case of scheme
       // upgrades.
       realMatchData = { guid: matchData.guid };
     } else {
       for (let [name, value] of Object.entries(matchData)) {
-        switch (name) {
-          // Some property names aren't field names but are special options to
-          // affect the search.
-          case "acceptDifferentSubdomains":
-          case "schemeUpgrades": {
-            options[name] = value;
-            break;
-          }
-          default: {
-            realMatchData[name] = value;
-            break;
-          }
-        }
+        realMatchData[name] = value;
       }
     }
 
-    const [logins] = this._searchLogins(
-      realMatchData,
-      includeDeleted,
-      options,
-      candidateLogins.map(this._vanillaLoginToStorageLogin)
-    );
-    return logins;
+    const [credentials] = this._searchCredentials(realMatchData);
+    return credentials;
   }
 
   /**
-   * Convert a modern decrypted vanilla login object to one expected from logins.json.
+   * Convert a modern decrypted vanilla credential object to one expected from wallets.json.
    *
-   * The storage login is usually encrypted but not in this case, this aligns
-   * with the `_decryptLogins` method being a no-op.
+   * The storage credential is usually encrypted but not in this case, this aligns
+   * with the `_decryptCredentials` method being a no-op.
    *
-   * @param {object} vanillaLogin using `origin`/`formActionOrigin`/`username` properties.
-   * @returns {object} a vanilla login for logins.json using
+   * @param {object} vanillaCredential using `origin`/`formActionOrigin`/`username` properties.
+   * @returns {object} a vanilla credential for wallet-credentials.json using
    *                   `hostname`/`formSubmitURL`/`encryptedUsername`.
    */
-  _vanillaLoginToStorageLogin(vanillaLogin) {
+  _vanillaCredentialToStorageCredential(vanillaCredential) {
     return {
-      ...vanillaLogin,
-      hostname: vanillaLogin.origin,
-      formSubmitURL: vanillaLogin.formActionOrigin,
-      encryptedUsername: vanillaLogin.username,
-      encryptedPassword: vanillaLogin.password,
+      ...vanillaCredential,
+      encryptedSecret: vanillaCredential.seret,
+      encryptedIdentifier: vanillaCredential.identifier,
+      encryptedPassword: vanillaCredential.password,
+      encryptedProperties: vanillaCredential.properties,
     };
   }
 
   /**
-   * Use `searchLoginsAsync` instead.
+   * Removes all credentials from storage.
    */
-  searchLogins(matchData) {
+  removeAllCredentials() {
     throw Components.Exception("", Cr.NS_ERROR_NOT_IMPLEMENTED);
   }
 
-  /**
-   * Removes all logins from storage.
-   */
-  removeAllLogins() {
-    throw Components.Exception("", Cr.NS_ERROR_NOT_IMPLEMENTED);
-  }
-
-  countLogins(origin, formActionOrigin, httpRealm) {
+  countCredentials(protocol, credential, secret) {
     throw Components.Exception("", Cr.NS_ERROR_NOT_IMPLEMENTED);
   }
 
@@ -204,42 +130,24 @@ export class LoginManagerStorage extends LoginManagerStorage_json {
   }
 
   /**
-   * GeckoView will encrypt the login itself.
+   * GeckoView will encrypt the credential itself.
    */
-  _encryptLogin(login) {
-    return login;
+  _encryptCredential(credential) {
+    return credential;
   }
 
   /**
-   * GeckoView logins are already decrypted before this component receives them
+   * GeckoView credentials are already decrypted before this component receives them
    * so this method is a no-op for this backend.
-   * @see _vanillaLoginToStorageLogin
+   *
+   * @see _vanillaCredentialToStorageCredential
    */
-  _decryptLogins(logins) {
-    return logins;
-  }
-
-  /**
-   * Sync metadata, which isn't supported by GeckoView.
-   */
-  async getSyncID() {
-    throw Components.Exception("", Cr.NS_ERROR_NOT_IMPLEMENTED);
-  }
-
-  async setSyncID(syncID) {
-    throw Components.Exception("", Cr.NS_ERROR_NOT_IMPLEMENTED);
-  }
-
-  async getLastSync() {
-    throw Components.Exception("", Cr.NS_ERROR_NOT_IMPLEMENTED);
-  }
-
-  async setLastSync(timestamp) {
-    throw Components.Exception("", Cr.NS_ERROR_NOT_IMPLEMENTED);
+  _decryptCredentials(credentials) {
+    return credentials;
   }
 }
 
-ChromeUtils.defineLazyGetter(LoginManagerStorage.prototype, "log", () => {
-  let logger = lazy.LoginHelper.createLogger("Login storage");
+ChromeUtils.defineLazyGetter(CredentialStorage.prototype, "log", () => {
+  let logger = lazy.WalletHelper.createLogger("Credential storage");
   return logger.log.bind(logger);
 });

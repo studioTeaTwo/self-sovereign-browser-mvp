@@ -1,14 +1,4 @@
 import { CredentialStore } from "../types/lnc"
-import {
-  createTestCipher,
-  decrypt,
-  encrypt,
-  generateSalt,
-  verifyTestCipher,
-} from "./encryption"
-
-const STORAGE_KEY = "lnc-web"
-const OBJECTSTORE_KEY = "credential"
 
 /**
  * A wrapper around `window.localStorage` used to store sensitive data required
@@ -16,23 +6,7 @@ const OBJECTSTORE_KEY = "credential"
  * data is encrypted at rest using the provided `password`.
  */
 export default class LncCredentialStore implements CredentialStore {
-  // the data to store in localStorage
-  // (ssb) replace to indexedDB
-  private persisted = {
-    namespace: "", // indexedDB record key
-    salt: "",
-    cipher: "",
-    serverHost: "",
-    // encrypted fields
-    localKey: "",
-    remoteKey: "",
-    pairingPhrase: "",
-  }
-  // the decrypted credentials in plain text. these fields are separate from the
-  // persisted encrypted fields in order to be able to set the password at any
-  // time. we may have plain text values that we need to hold onto until the
-  // password is set, or may load encrypted values that we delay decrypting until
-  // the password is provided.
+  private _serverHost: string = ""
   private _localKey: string = ""
   private _remoteKey: string = ""
   private _pairingPhrase: string = ""
@@ -41,99 +15,25 @@ export default class LncCredentialStore implements CredentialStore {
   /** The namespace to use in the localStorage key */
   private namespace: string = "default"
 
-  private db: IDBDatabase
-  private openRequest: IDBOpenDBRequest
-
   /**
    * Constructs a new `LncCredentialStore` instance
    */
   constructor(namespace?: string, password?: string) {
     if (namespace) this.namespace = namespace
-
-    if (globalThis.indexedDB) {
-      this.openRequest = globalThis.indexedDB.open(STORAGE_KEY, 1)
-      this.openRequest.onupgradeneeded = () => {
-        this.db = this.openRequest.result
-        if (!this.db.objectStoreNames.contains(OBJECTSTORE_KEY)) {
-          this.db.createObjectStore(OBJECTSTORE_KEY, { keyPath: "namespace" })
-          console.log(`indexedDB created: ${OBJECTSTORE_KEY}`)
-        }
-      }
-      this.openRequest.onsuccess = () => {
-        this.db = this.openRequest.result
-        console.log(`indexedDB opened: ${OBJECTSTORE_KEY}`)
-      }
-    }
-
-    // set the password after loading the data, otherwise the data will be
-    // overwritten because the password setter checks for the existence of
-    // persisted data.
-    if (password) this.password = password
   }
 
   //
   // Public fields which implement the `CredentialStore` interface
   //
 
-  /**
-   * Stores the optional password to use for encryption of the data. LNC does not
-   * read or write the password. This is just exposed publicly to simplify access
-   * to the field via `lnc.credentials.password`
-   */
-  get password() {
-    return this._password || ""
-  }
-
-  /**
-   * Stores the optional password to use for encryption of the data. LNC does not
-   * read or write the password. This is just exposed publicly to simplify access
-   * to the field via `lnc.credentials.password`
-   */
-  set password(password: string) {
-    // when a password is provided, we need to either decrypt the persisted
-    // data, or encrypt and store the plain text data
-    if (this.persisted.cipher) {
-      // we have encrypted data to decrypt
-      const { cipher, salt } = this.persisted
-      if (!verifyTestCipher(cipher, password, salt)) {
-        throw new Error("The password provided is not valid")
-      }
-      // set the password before decrypting data
-      this._password = password
-      // decrypt the persisted data
-      this._pairingPhrase = this._decrypt(this.persisted.pairingPhrase)
-      this._localKey = this._decrypt(this.persisted.localKey)
-      this._remoteKey = this._decrypt(this.persisted.remoteKey)
-    } else {
-      // we have plain text data to encrypt
-      this._password = password
-      // create new salt and cipher using the password
-      this.persisted.salt = generateSalt()
-      this.persisted.cipher = createTestCipher(password, this.persisted.salt)
-      // encrypt and persist any in-memory values
-      if (this.pairingPhrase)
-        this.persisted.pairingPhrase = this._encrypt(this.pairingPhrase)
-      if (this.localKey) this.persisted.localKey = this._encrypt(this.localKey)
-      if (this.remoteKey)
-        this.persisted.remoteKey = this._encrypt(this.remoteKey)
-      this._save()
-
-      // once the encrypted data is persisted, we can clear the plain text
-      // credentials from memory
-      // TODO: (ssb) review the sequence flow later
-      // this.clear(true)
-    }
-  }
-
   /** Stores the host:port of the Lightning Node Connect proxy server to connect to */
   get serverHost() {
-    return this.persisted.serverHost
+    return this._serverHost
   }
 
   /** Stores the host:port of the Lightning Node Connect proxy server to connect to */
   set serverHost(host: string) {
-    this.persisted.serverHost = host
-    this._save()
+    this._serverHost = host
   }
 
   /** Stores the LNC pairing phrase used to initialize the connection to the LNC proxy */
@@ -144,10 +44,6 @@ export default class LncCredentialStore implements CredentialStore {
   /** Stores the LNC pairing phrase used to initialize the connection to the LNC proxy */
   set pairingPhrase(phrase: string) {
     this._pairingPhrase = phrase
-    if (this._password) {
-      this.persisted.pairingPhrase = this._encrypt(phrase)
-      this._save()
-    }
   }
 
   /** Stores the local private key which LNC uses to reestablish a connection */
@@ -158,10 +54,6 @@ export default class LncCredentialStore implements CredentialStore {
   /** Stores the local private key which LNC uses to reestablish a connection */
   set localKey(key: string) {
     this._localKey = key
-    if (this._password) {
-      this.persisted.localKey = this._encrypt(key)
-      this._save()
-    }
   }
 
   /** Stores the remote static key which LNC uses to reestablish a connection */
@@ -172,10 +64,6 @@ export default class LncCredentialStore implements CredentialStore {
   /** Stores the remote static key which LNC uses to reestablish a connection */
   set remoteKey(key: string) {
     this._remoteKey = key
-    if (this._password) {
-      this.persisted.remoteKey = this._encrypt(key)
-      this._save()
-    }
   }
 
   /**
@@ -183,92 +71,13 @@ export default class LncCredentialStore implements CredentialStore {
    * credentials persisted in teh store
    */
   get isPaired() {
-    return !!this.persisted.remoteKey || !!this.persisted.pairingPhrase
-  }
-
-  init() {
-    this._load()
+    return !!this.remoteKey || !!this.pairingPhrase
   }
 
   /** Clears any persisted data in the store */
-  clear(memoryOnly?: boolean) {
-    if (!memoryOnly) {
-      const transaction = this.db.transaction(OBJECTSTORE_KEY, "readwrite")
-      const store = transaction.objectStore(OBJECTSTORE_KEY)
-      store.delete(this.namespace)
-    }
-    this.persisted = {
-      namespace: "",
-      salt: "",
-      cipher: "",
-      serverHost: this.persisted.serverHost,
-      localKey: "",
-      remoteKey: "",
-      pairingPhrase: "",
-    }
+  clear() {
     this._localKey = ""
     this._remoteKey = ""
     this._pairingPhrase = ""
-    this._password = undefined
-  }
-
-  //
-  // Private functions only used internally
-  //
-
-  /** Loads persisted data from localStorage */
-  // (ssb) replace to indexedDB
-  private _load() {
-    try {
-      const transaction = this.db.transaction(OBJECTSTORE_KEY, "readonly")
-      const store = transaction.objectStore(OBJECTSTORE_KEY)
-      const request = store.get(this.namespace)
-      request.onsuccess = (event) => {
-        if (request.result) {
-          this.persisted = request.result
-          console.log(`indexedDB loaded: ${JSON.stringify(this.persisted)}`)
-        }
-      }
-      request.onerror = (event) => {
-        console.error(`Failed to load secure data: ${JSON.stringify(event)}`)
-      }
-    } catch (error) {
-      const msg = (error as Error).message
-      throw new Error(`Failed to load secure data: ${msg}`)
-    }
-  }
-
-  /** Saves persisted data to localStorage */
-  // (ssb) replace to indexedDB
-  private _save() {
-    const transaction = this.db.transaction(OBJECTSTORE_KEY, "readwrite")
-    const store = transaction.objectStore(OBJECTSTORE_KEY)
-    const request = store.put({ ...this.persisted, namespace: this.namespace })
-    request.onsuccess = (event) => {
-      if (request.result) {
-        console.log(`indexedDB saved: ${JSON.stringify(this.persisted)}`)
-      }
-    }
-    request.onerror = (event) => {
-      console.error(`Failed to put secure data: ${JSON.stringify(event)}`)
-    }
-  }
-
-  /**
-   * A wrapper around `encrypt` which just returns an empty string if the
-   * value or password have no value
-   */
-  private _encrypt(value: string) {
-    if (!value || !this._password) return ""
-    return encrypt(value, this._password, this.persisted.salt)
-  }
-
-  /**
-   * A wrapper around `decrypt` which just returns an empty string if the
-   * value or password have no value
-   */
-  private _decrypt(value: string) {
-    if (!value || !this._password) return ""
-    return decrypt(value, this._password, this.persisted.salt)
   }
 }

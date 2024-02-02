@@ -11,90 +11,56 @@ ChromeUtils.defineESModuleGetters(lazy, {
 export function nsCredentialInfo() {}
 
 nsCredentialInfo.prototype = {
-  classID: Components.ID("{0f2f347c-1e4f-40cc-8efd-792dea70a85e}"),
-  QueryInterface: ChromeUtils.generateQI(["nsICredentialInfo", "nsICredentialMetaInfo"]),
+  classID: Components.ID("{3A2D17A3-D8D4-400A-B988-0C1C54E4AD4D}"),
+  QueryInterface: ChromeUtils.generateQI([
+    "nsICredentialInfo",
+    "nsICredentialMetaInfo",
+  ]),
 
   //
   // nsICredentialInfo interfaces...
   //
 
-  origin: null,
-  formActionOrigin: null,
-  httpRealm: null,
-  username: null,
+  protocolName: null,
+  credentialName: null,
+  primary: null,
+  secret: null,
+  identifier: null,
   password: null,
-  usernameField: null,
-  passwordField: null,
+  properties: null,
   unknownFields: null,
 
-  everSynced: false,
-  syncCounter: 0,
-
-  get displayOrigin() {
-    let displayOrigin = this.origin;
-    try {
-      let uri = Services.io.newURI(this.origin);
-      // Fallback to handle file: URIs
-      displayOrigin = uri.displayHostPort || this.origin;
-    } catch (ex) {
-      // Fallback to this.origin set above in case a URI can't be contructed e.g.
-      // file://
-    }
-
-    if (this.httpRealm === null) {
-      return displayOrigin;
-    }
-
-    return `${displayOrigin} (${this.httpRealm})`;
-  },
-
-  /**
-   * @deprecated Use `origin` instead.
-   */
-  get hostname() {
-    return this.origin;
-  },
-
-  /**
-   * @deprecated Use `formActionOrigin` instead.
-   */
-  get formSubmitURL() {
-    return this.formActionOrigin;
-  },
-
   init(
-    aOrigin,
-    aFormActionOrigin,
-    aHttpRealm,
-    aUsername,
+    aProtocolName,
+    aCredentialName,
+    aPrimary,
+    aSecret,
+    aIdentifier,
     aPassword,
-    aUsernameField = "",
-    aPasswordField = ""
+    aProperties
   ) {
-    this.origin = aOrigin;
-    this.formActionOrigin = aFormActionOrigin;
-    this.httpRealm = aHttpRealm;
-    this.username = aUsername;
+    this.protocolName = aProtocolName;
+    this.credentialName = aCredentialName;
+    this.primary = aPrimary;
+    this.secret = aSecret;
+    this.identifier = aIdentifier;
     this.password = aPassword;
-    this.usernameField = aUsernameField || "";
-    this.passwordField = aPasswordField || "";
+    this.properties = aProperties;
   },
 
-  matches(aCredential, ignorePassword) {
-    return lazy.WalletHelper.doCredentialsMatch(this, aCredential, {
-      ignorePassword,
-    });
+  matches(aCredential) {
+    return lazy.WalletHelper.doCredentialsMatch(this, aCredential);
   },
 
   equals(aCredential) {
     if (
-      this.origin != aCredential.origin ||
-      this.formActionOrigin != aCredential.formActionOrigin ||
-      this.httpRealm != aCredential.httpRealm ||
-      this.username != aCredential.username ||
+      this.protocolName != aCredential.protocolName ||
+      this.credentialName != aCredential.credentialName ||
+      this.primary != aCredential.primary ||
+      this.secret != aCredential.secret ||
+      this.identifier != aCredential.identifier ||
       this.password != aCredential.password ||
-      this.usernameField != aCredential.usernameField ||
-      this.passwordField != aCredential.passwordField
+      this.properties != aCredential.properties
     ) {
       return false;
     }
@@ -103,17 +69,17 @@ nsCredentialInfo.prototype = {
   },
 
   clone() {
-    let clone = Cc["@mozilla.org/login-manager/loginInfo;1"].createInstance(
+    let clone = Cc["@mozilla.org/wallet-store/credentialInfo;1"].createInstance(
       Ci.nsICredentialInfo
     );
     clone.init(
-      this.origin,
-      this.formActionOrigin,
-      this.httpRealm,
-      this.username,
+      this.protocolName,
+      this.credentialName,
+      this.primary,
+      this.secret,
+      this.identifier,
       this.password,
-      this.usernameField,
-      this.passwordField
+      this.properties
     );
 
     // Copy nsICredentialMetaInfo props
@@ -121,10 +87,8 @@ nsCredentialInfo.prototype = {
     clone.guid = this.guid;
     clone.timeCreated = this.timeCreated;
     clone.timeLastUsed = this.timeLastUsed;
-    clone.timePasswordChanged = this.timePasswordChanged;
+    clone.timeSecretChanged = this.timeSecretChanged;
     clone.timesUsed = this.timesUsed;
-    clone.syncCounter = this.syncCounter;
-    clone.everSynced = this.everSynced;
 
     // Unknown fields from other clients
     clone.unknownFields = this.unknownFields;
@@ -139,6 +103,6 @@ nsCredentialInfo.prototype = {
   guid: null,
   timeCreated: null,
   timeLastUsed: null,
-  timePasswordChanged: null,
+  timeSecretChanged: null,
   timesUsed: null,
 }; // end of nsCredentialInfo implementation

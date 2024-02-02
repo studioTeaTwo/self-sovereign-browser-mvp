@@ -2,653 +2,330 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// _AboutLogins is only exported for testing
-import { setTimeout, clearTimeout } from "resource://gre/modules/Timer.sys.mjs";
+// _AboutWallet is only exported for testing
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs"
+import { E10SUtils } from "resource://gre/modules/E10SUtils.sys.mjs"
 
-import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
-import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
-import { E10SUtils } from "resource://gre/modules/E10SUtils.sys.mjs";
-
-const lazy = {};
+const lazy = {}
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  LoginBreaches: "resource:///modules/LoginBreaches.sys.mjs",
-  LoginCSVImport: "resource://gre/modules/LoginCSVImport.sys.mjs",
-  LoginExport: "resource://gre/modules/LoginExport.sys.mjs",
-  LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
-  MigrationUtils: "resource:///modules/MigrationUtils.sys.mjs",
+  WalletHelper: "resource://gre/modules/WalletHelper.sys.mjs",
   OSKeyStore: "resource://gre/modules/OSKeyStore.sys.mjs",
-  UIState: "resource://services-sync/UIState.sys.mjs",
-});
+})
 
 ChromeUtils.defineLazyGetter(lazy, "log", () => {
-  return lazy.LoginHelper.createLogger("AboutLoginsParent");
-});
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "BREACH_ALERTS_ENABLED",
-  "signon.management.page.breach-alerts.enabled",
-  false
-);
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "FXA_ENABLED",
-  "identity.fxaccounts.enabled",
-  false
-);
+  return lazy.WalletHelper.createLogger("AboutWalletParent")
+})
 XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
   "OS_AUTH_ENABLED",
   "signon.management.page.os-auth.enabled",
   true
-);
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "VULNERABLE_PASSWORDS_ENABLED",
-  "signon.management.page.vulnerable-passwords.enabled",
-  false
-);
-ChromeUtils.defineLazyGetter(lazy, "AboutLoginsL10n", () => {
-  return new Localization(["branding/brand.ftl", "browser/aboutLogins.ftl"]);
-});
+)
+ChromeUtils.defineLazyGetter(lazy, "AboutWalletL10n", () => {
+  return new Localization(["branding/brand.ftl", "browser/aboutWallet.ftl"])
+})
 
-const ABOUT_LOGINS_ORIGIN = "about:logins";
-const AUTH_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const PRIMARY_PASSWORD_NOTIFICATION_ID = "primary-password-login-required";
+const ABOUT_WALLET_ORIGIN = "about:wallet"
+const AUTH_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
+const PRIMARY_PASSWORD_NOTIFICATION_ID = "primary-password-login-required"
 
-// about:logins will always use the privileged content process,
+// about:wallet will always use the privileged content process,
 // even if it is disabled for other consumers such as about:newtab.
-const EXPECTED_ABOUTLOGINS_REMOTE_TYPE = E10SUtils.PRIVILEGEDABOUT_REMOTE_TYPE;
-let _gPasswordRemaskTimeout = null;
-const convertSubjectToLogin = subject => {
-  subject.QueryInterface(Ci.nsILoginMetaInfo).QueryInterface(Ci.nsILoginInfo);
-  const login = lazy.LoginHelper.loginToVanillaObject(subject);
-  if (!lazy.LoginHelper.isUserFacingLogin(login)) {
-    return null;
-  }
-  return augmentVanillaLoginObject(login);
-};
+const EXPECTED_ABOUTWALLET_REMOTE_TYPE = E10SUtils.PRIVILEGEDABOUT_REMOTE_TYPE
+const convertSubjectToCredential = (subject) => {
+  subject
+    .QueryInterface(Ci.nsICredentialMetaInfo)
+    .QueryInterface(Ci.nsICredentialInfo)
+  const credential = lazy.WalletHelper.credentialToVanillaObject(subject)
+  return credential
+}
 
-const SUBDOMAIN_REGEX = new RegExp(/^www\d*\./);
-const augmentVanillaLoginObject = login => {
-  // Note that `displayOrigin` can also include a httpRealm.
-  let title = login.displayOrigin.replace(SUBDOMAIN_REGEX, "");
-  return Object.assign({}, login, {
-    title,
-  });
-};
-
-export class AboutLoginsParent extends JSWindowActorParent {
+export class AboutWalletParent extends JSWindowActorParent {
   async receiveMessage(message) {
     if (!this.browsingContext.embedderElement) {
-      return;
+      return
     }
 
     // Only respond to messages sent from a privlegedabout process. Ideally
     // we would also check the contentPrincipal.originNoSuffix but this
     // check has been removed due to bug 1576722.
-    if (
-      this.browsingContext.embedderElement.remoteType !=
-      EXPECTED_ABOUTLOGINS_REMOTE_TYPE
-    ) {
-      throw new Error(
-        `AboutLoginsParent: Received ${message.name} message the remote type didn't match expectations: ${this.browsingContext.embedderElement.remoteType} == ${EXPECTED_ABOUTLOGINS_REMOTE_TYPE}`
-      );
-    }
+    // TODO: (ssb) review security
+    // if (
+    //   this.browsingContext.embedderElement.remoteType !=
+    //   EXPECTED_ABOUTLOGINS_REMOTE_TYPE
+    // ) {
+    //   throw new Error(
+    //     `AboutWalletParent: Received ${message.name} message the remote type didn't match expectations: ${this.browsingContext.embedderElement.remoteType} == ${EXPECTED_ABOUTLOGINS_REMOTE_TYPE}`
+    //   )
+    // }
 
-    AboutLogins.subscribers.add(this.browsingContext);
+    AboutWallet.subscribers.add(this.browsingContext)
 
     switch (message.name) {
-      case "AboutLogins:CreateLogin": {
-        await this.#createLogin(message.data.login);
-        break;
+      case "AboutWallet:CreateCredential": {
+        await this.#createCredential(message.data.credential)
+        break
       }
-      case "AboutLogins:DeleteLogin": {
-        this.#deleteLogin(message.data.login);
-        break;
+      case "AboutWallet:DeleteCredential": {
+        this.#deleteCredential(message.data.credential)
+        break
       }
-      case "AboutLogins:SortChanged": {
-        this.#sortChanged(message.data);
-        break;
+      case "AboutWallet:PrimaryPasswordRequest": {
+        await this.#primaryPasswordRequest(message.data)
+        break
       }
-      case "AboutLogins:SyncEnable": {
-        this.#syncEnable();
-        break;
+      case "AboutWallet:Subscribe": {
+        await this.#subscribe()
+        break
       }
-      case "AboutLogins:SyncOptions": {
-        this.#syncOptions();
-        break;
+      case "AboutWallet:UpdateCredential": {
+        this.#updateCredential(message.data.credential)
+        break
       }
-      case "AboutLogins:ImportFromBrowser": {
-        this.#importFromBrowser();
-        break;
-      }
-      case "AboutLogins:ImportReportInit": {
-        this.#importReportInit();
-        break;
-      }
-      case "AboutLogins:GetHelp": {
-        this.#getHelp();
-        break;
-      }
-      case "AboutLogins:OpenPreferences": {
-        this.#openPreferences();
-        break;
-      }
-      case "AboutLogins:PrimaryPasswordRequest": {
-        await this.#primaryPasswordRequest(message.data);
-        break;
-      }
-      case "AboutLogins:Subscribe": {
-        await this.#subscribe();
-        break;
-      }
-      case "AboutLogins:UpdateLogin": {
-        this.#updateLogin(message.data.login);
-        break;
-      }
-      case "AboutLogins:ExportPasswords": {
-        await this.#exportPasswords();
-        break;
-      }
-      case "AboutLogins:ImportFromFile": {
-        await this.#importFromFile();
-        break;
-      }
-      case "AboutLogins:RemoveAllLogins": {
-        this.#removeAllLogins();
-        break;
+      case "AboutWallet:RemoveAllCredentials": {
+        this.#removeAllCredentials()
+        break
       }
     }
   }
 
   get #ownerGlobal() {
-    return this.browsingContext.embedderElement.ownerGlobal;
+    return this.browsingContext.embedderElement.ownerGlobal
   }
 
-  async #createLogin(newLogin) {
-    if (!Services.policies.isAllowed("removeMasterPassword")) {
-      if (!lazy.LoginHelper.isPrimaryPasswordSet()) {
-        this.#ownerGlobal.openDialog(
-          "chrome://mozapps/content/preferences/changemp.xhtml",
-          "",
-          "centerscreen,chrome,modal,titlebar"
-        );
-        if (!lazy.LoginHelper.isPrimaryPasswordSet()) {
-          return;
-        }
-      }
-    }
-    // Remove the path from the origin, if it was provided.
-    let origin = lazy.LoginHelper.getLoginOrigin(newLogin.origin);
-    if (!origin) {
-      console.error(
-        "AboutLogins:CreateLogin: Unable to get an origin from the login details."
-      );
-      return;
-    }
-    newLogin.origin = origin;
-    Object.assign(newLogin, {
-      formActionOrigin: "",
-      usernameField: "",
-      passwordField: "",
-    });
-    newLogin = lazy.LoginHelper.vanillaObjectToLogin(newLogin);
+  async #createCredential(newCredential) {
+    // TODO: (ssb) review OS Auth later
+    // if (!Services.policies.isAllowed("removeMasterPassword")) {
+    //   if (!lazy.WalletHelper.isPrimaryPasswordSet()) {
+    //     this.#ownerGlobal.openDialog(
+    //       "chrome://mozapps/content/preferences/changemp.xhtml",
+    //       "",
+    //       "centerscreen,chrome,modal,titlebar"
+    //     );
+    //     if (!lazy.WalletHelper.isPrimaryPasswordSet()) {
+    //       return;
+    //     }
+    //   }
+    // }
+    newCredential = lazy.WalletHelper.vanillaObjectToCredential(newCredential)
     try {
-      await Services.logins.addLoginAsync(newLogin);
+      await Services.wallet.addCredentialAsync(newCredential)
     } catch (error) {
-      this.#handleLoginStorageErrors(newLogin, error);
+      this.#handleCredentialStorageErrors(newCredential, error)
     }
   }
 
-  #deleteLogin(loginObject) {
-    let login = lazy.LoginHelper.vanillaObjectToLogin(loginObject);
-    Services.logins.removeLogin(login);
-  }
-
-  #sortChanged(sort) {
-    Services.prefs.setCharPref("signon.management.page.sort", sort);
-  }
-
-  #syncEnable() {
-    this.#ownerGlobal.gSync.openFxAEmailFirstPage("password-manager");
-  }
-
-  #syncOptions() {
-    this.#ownerGlobal.gSync.openFxAManagePage("password-manager");
-  }
-
-  #importFromBrowser() {
-    try {
-      lazy.MigrationUtils.showMigrationWizard(this.#ownerGlobal, {
-        entrypoint: lazy.MigrationUtils.MIGRATION_ENTRYPOINTS.PASSWORDS,
-      });
-    } catch (ex) {
-      console.error(ex);
-    }
-  }
-
-  #importReportInit() {
-    let reportData = lazy.LoginCSVImport.lastImportReport;
-    this.sendAsyncMessage("AboutLogins:ImportReportData", reportData);
-  }
-
-  #getHelp() {
-    const SUPPORT_URL =
-      Services.urlFormatter.formatURLPref("app.support.baseURL") +
-      "password-manager-remember-delete-edit-logins";
-    this.#ownerGlobal.openWebLinkIn(SUPPORT_URL, "tab", {
-      relatedToCurrent: true,
-    });
-  }
-
-  #openPreferences() {
-    this.#ownerGlobal.openPreferences("privacy-logins");
+  #deleteCredential(credentialObject) {
+    let credential =
+      lazy.WalletHelper.vanillaObjectToCredential(credentialObject)
+    Services.wallet.removeCredential(credential)
   }
 
   async #primaryPasswordRequest(messageId) {
     if (!messageId) {
-      throw new Error("AboutLogins:PrimaryPasswordRequest: no messageId.");
+      throw new Error("AboutWallet:PrimaryPasswordRequest: no messageId.")
     }
-    let messageText = { value: "NOT SUPPORTED" };
-    let captionText = { value: "" };
+    let messageText = { value: "NOT SUPPORTED" }
+    let captionText = { value: "" }
 
     // This feature is only supported on Windows and macOS
     // but we still call in to OSKeyStore on Linux to get
     // the proper auth_details for Telemetry.
     // See bug 1614874 for Linux support.
     if (lazy.OS_AUTH_ENABLED && lazy.OSKeyStore.canReauth()) {
-      messageId += "-" + AppConstants.platform;
-      [messageText, captionText] = await lazy.AboutLoginsL10n.formatMessages([
+      messageId += "-" + AppConstants.platform
+      ;[messageText, captionText] = await lazy.AboutWalletL10n.formatMessages([
         {
           id: messageId,
         },
         {
-          id: "about-logins-os-auth-dialog-caption",
+          id: "about-wallet-os-auth-dialog-caption",
         },
-      ]);
+      ])
     }
 
-    let { isAuthorized, telemetryEvent } = await lazy.LoginHelper.requestReauth(
-      this.browsingContext.embedderElement,
-      lazy.OS_AUTH_ENABLED,
-      AboutLogins._authExpirationTime,
-      messageText.value,
-      captionText.value
-    );
-    this.sendAsyncMessage("AboutLogins:PrimaryPasswordResponse", {
+    let { isAuthorized, telemetryEvent } =
+      await lazy.WalletHelper.requestReauth(
+        this.browsingContext.embedderElement,
+        lazy.OS_AUTH_ENABLED,
+        AboutWallet._authExpirationTime,
+        messageText.value,
+        captionText.value
+      )
+    this.sendAsyncMessage("AboutWallet:PrimaryPasswordResponse", {
       result: isAuthorized,
       telemetryEvent,
-    });
+    })
     if (isAuthorized) {
-      AboutLogins._authExpirationTime = Date.now() + AUTH_TIMEOUT_MS;
+      AboutWallet._authExpirationTime = Date.now() + AUTH_TIMEOUT_MS
       const remaskPasswords = () => {
-        this.sendAsyncMessage("AboutLogins:RemaskPassword");
-      };
-      clearTimeout(_gPasswordRemaskTimeout);
-      _gPasswordRemaskTimeout = setTimeout(remaskPasswords, AUTH_TIMEOUT_MS);
+        this.sendAsyncMessage("AboutWallet:RemaskPassword")
+      }
+      clearTimeout(_gPasswordRemaskTimeout)
+      _gPasswordRemaskTimeout = setTimeout(remaskPasswords, AUTH_TIMEOUT_MS)
     }
   }
 
   async #subscribe() {
-    AboutLogins._authExpirationTime = Number.NEGATIVE_INFINITY;
-    AboutLogins.addObservers();
+    AboutWallet.addObservers()
 
-    const logins = await AboutLogins.getAllLogins();
+    const credentials = await AboutWallet.getAllCredentials()
     try {
-      let syncState = AboutLogins.getSyncState();
-
-      let selectedSort = Services.prefs.getCharPref(
-        "signon.management.page.sort",
-        "name"
-      );
-      if (selectedSort == "breached") {
-        // The "breached" value was used since Firefox 70 and
-        // replaced with "alerts" in Firefox 76.
-        selectedSort = "alerts";
-      }
-      this.sendAsyncMessage("AboutLogins:Setup", {
-        logins,
-        selectedSort,
-        syncState,
-        primaryPasswordEnabled: lazy.LoginHelper.isPrimaryPasswordSet(),
+      this.sendAsyncMessage("AboutWallet:Setup", {
+        credentials,
+        primaryPasswordEnabled: lazy.WalletHelper.isPrimaryPasswordSet(),
         passwordRevealVisible: Services.policies.isAllowed("passwordReveal"),
-        importVisible:
-          Services.policies.isAllowed("profileImport") &&
-          AppConstants.platform != "linux",
-      });
-
-      await AboutLogins.sendAllLoginRelatedObjects(
-        logins,
-        this.browsingContext
-      );
+      })
     } catch (ex) {
       if (ex.result != Cr.NS_ERROR_NOT_INITIALIZED) {
-        throw ex;
+        throw ex
       }
 
       // The message manager may be destroyed before the replies can be sent.
       lazy.log.debug(
-        "AboutLogins:Subscribe: exception when replying with logins",
+        "AboutWallet:Subscribe: exception when replying with credentials",
         ex
-      );
+      )
     }
   }
 
-  #updateLogin(loginUpdates) {
-    let logins = lazy.LoginHelper.searchLoginsWithObject({
-      guid: loginUpdates.guid,
-    });
-    if (logins.length != 1) {
+  async #updateCredential(credentialUpdates) {
+    let credentials = await Services.wallet.searchCredentialsAsync({
+      guid: credentialUpdates.guid,
+    })
+    if (credentials.length != 1) {
       lazy.log.warn(
-        `AboutLogins:UpdateLogin: expected to find a login for guid: ${loginUpdates.guid} but found ${logins.length}`
-      );
-      return;
+        `AboutWallet:UpdateCredential: expected to find a credential for guid: ${credentialUpdates.guid} but found ${credentials.length}`
+      )
+      return
     }
 
-    let modifiedLogin = logins[0].clone();
-    if (loginUpdates.hasOwnProperty("username")) {
-      modifiedLogin.username = loginUpdates.username;
+    let modifiedCredential = credentials[0].clone()
+    if (credentialUpdates.hasOwnProperty("primary")) {
+      modifiedCredential.primary = credentialUpdates.primary
     }
-    if (loginUpdates.hasOwnProperty("password")) {
-      modifiedLogin.password = loginUpdates.password;
+    if (credentialUpdates.hasOwnProperty("secret")) {
+      modifiedCredential.secret = credentialUpdates.secret
+    }
+    if (credentialUpdates.hasOwnProperty("identifier")) {
+      modifiedCredential.identifier = credentialUpdates.identifier
+    }
+    if (credentialUpdates.hasOwnProperty("password")) {
+      modifiedCredential.password = credentialUpdates.password
+    }
+    if (credentialUpdates.hasOwnProperty("properties")) {
+      modifiedCredential.properties = credentialUpdates.properties
     }
     try {
-      Services.logins.modifyLogin(logins[0], modifiedLogin);
+      Services.wallet.modifyCredential(credentials[0], modifiedCredential)
     } catch (error) {
-      this.#handleLoginStorageErrors(modifiedLogin, error);
+      this.#handleCredentialStorageErrors(modifiedCredential, error)
     }
   }
 
-  async #exportPasswords() {
-    let messageText = { value: "NOT SUPPORTED" };
-    let captionText = { value: "" };
-
-    // This feature is only supported on Windows and macOS
-    // but we still call in to OSKeyStore on Linux to get
-    // the proper auth_details for Telemetry.
-    // See bug 1614874 for Linux support.
-    if (lazy.OSKeyStore.canReauth()) {
-      let messageId =
-        "about-logins-export-password-os-auth-dialog-message-" +
-        AppConstants.platform;
-      [messageText, captionText] = await lazy.AboutLoginsL10n.formatMessages([
-        {
-          id: messageId,
-        },
-        {
-          id: "about-logins-os-auth-dialog-caption",
-        },
-      ]);
-    }
-
-    let { isAuthorized, telemetryEvent } = await lazy.LoginHelper.requestReauth(
-      this.browsingContext.embedderElement,
-      true,
-      null, // Prompt regardless of a recent prompt
-      messageText.value,
-      captionText.value
-    );
-
-    let { method, object, extra = {}, value = null } = telemetryEvent;
-    Services.telemetry.recordEvent("pwmgr", method, object, value, extra);
-
-    if (!isAuthorized) {
-      return;
-    }
-
-    let fp = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
-    function fpCallback(aResult) {
-      if (aResult != Ci.nsIFilePicker.returnCancel) {
-        lazy.LoginExport.exportAsCSV(fp.file.path);
-        Services.telemetry.recordEvent(
-          "pwmgr",
-          "mgmt_menu_item_used",
-          "export_complete"
-        );
-      }
-    }
-    let [title, defaultFilename, okButtonLabel, csvFilterTitle] =
-      await lazy.AboutLoginsL10n.formatValues([
-        {
-          id: "about-logins-export-file-picker-title",
-        },
-        {
-          id: "about-logins-export-file-picker-default-filename",
-        },
-        {
-          id: "about-logins-export-file-picker-export-button",
-        },
-        {
-          id: "about-logins-export-file-picker-csv-filter-title",
-        },
-      ]);
-
-    fp.init(this.#ownerGlobal, title, Ci.nsIFilePicker.modeSave);
-    fp.appendFilter(csvFilterTitle, "*.csv");
-    fp.appendFilters(Ci.nsIFilePicker.filterAll);
-    fp.defaultString = defaultFilename;
-    fp.defaultExtension = "csv";
-    fp.okButtonLabel = okButtonLabel;
-    fp.open(fpCallback);
+  #removeAllCredentials() {
+    Services.wallet.removeAllCredentials()
   }
 
-  async #importFromFile() {
-    let [title, okButtonLabel, csvFilterTitle, tsvFilterTitle] =
-      await lazy.AboutLoginsL10n.formatValues([
-        {
-          id: "about-logins-import-file-picker-title",
-        },
-        {
-          id: "about-logins-import-file-picker-import-button",
-        },
-        {
-          id: "about-logins-import-file-picker-csv-filter-title",
-        },
-        {
-          id: "about-logins-import-file-picker-tsv-filter-title",
-        },
-      ]);
-    let { result, path } = await this.openFilePickerDialog(
-      title,
-      okButtonLabel,
-      [
-        {
-          title: csvFilterTitle,
-          extensionPattern: "*.csv",
-        },
-        {
-          title: tsvFilterTitle,
-          extensionPattern: "*.tsv",
-        },
-      ],
-      this.#ownerGlobal
-    );
-
-    if (result != Ci.nsIFilePicker.returnCancel) {
-      let summary;
-      try {
-        summary = await lazy.LoginCSVImport.importFromCSV(path);
-      } catch (e) {
-        console.error(e);
-        this.sendAsyncMessage(
-          "AboutLogins:ImportPasswordsErrorDialog",
-          e.errorType
-        );
-      }
-      if (summary) {
-        this.sendAsyncMessage("AboutLogins:ImportPasswordsDialog", summary);
-        Services.telemetry.recordEvent(
-          "pwmgr",
-          "mgmt_menu_item_used",
-          "import_csv_complete"
-        );
-      }
-    }
-  }
-
-  #removeAllLogins() {
-    Services.logins.removeAllUserFacingLogins();
-  }
-
-  #handleLoginStorageErrors(login, error) {
+  #handleCredentialStorageErrors(credential, error) {
     let messageObject = {
-      login: augmentVanillaLoginObject(
-        lazy.LoginHelper.loginToVanillaObject(login)
-      ),
+      credential: lazy.WalletHelper.credentialToVanillaObject(credential),
       errorMessage: error.message,
-    };
-
-    if (error.message.includes("This login already exists")) {
-      // See comment in LoginHelper.createLoginAlreadyExistsError as to
-      // why we need to call .toString() on the nsISupportsString.
-      messageObject.existingLoginGuid = error.data.toString();
     }
 
-    this.sendAsyncMessage("AboutLogins:ShowLoginItemError", messageObject);
-  }
+    if (error.message.includes("This credential already exists")) {
+      // See comment in WalletHelper.createCredentialAlreadyExistsError as to
+      // why we need to call .toString() on the nsISupportsString.
+      messageObject.existingCredentialGuid = error.data.toString()
+    }
 
-  async openFilePickerDialog(title, okButtonLabel, appendFilters, ownerGlobal) {
-    return new Promise(resolve => {
-      let fp = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
-      fp.init(ownerGlobal, title, Ci.nsIFilePicker.modeOpen);
-      for (const appendFilter of appendFilters) {
-        fp.appendFilter(appendFilter.title, appendFilter.extensionPattern);
-      }
-      fp.appendFilters(Ci.nsIFilePicker.filterAll);
-      fp.okButtonLabel = okButtonLabel;
-      fp.open(async result => {
-        resolve({ result, path: fp.file.path });
-      });
-    });
+    this.sendAsyncMessage("AboutWallet:ShowCredentialItemError", messageObject)
   }
 }
 
-class AboutLoginsInternal {
-  subscribers = new WeakSet();
-  #observersAdded = false;
-  authExpirationTime = Number.NEGATIVE_INFINITY;
+class AboutWalletInternal {
+  subscribers = new WeakSet()
+  #observersAdded = false
+  authExpirationTime = Number.NEGATIVE_INFINITY
 
   async observe(subject, topic, type) {
     if (!ChromeUtils.nondeterministicGetWeakSetKeys(this.subscribers).length) {
-      this.#removeObservers();
-      return;
+      this.#removeObservers()
+      return
     }
 
     switch (topic) {
-      case "passwordmgr-reload-all": {
-        await this.#reloadAllLogins();
-        break;
+      case "walletstore-reload-all": {
+        await this.#reloadAllCredentials()
+        break
       }
-      case "passwordmgr-crypto-login": {
-        this.#removeNotifications(PRIMARY_PASSWORD_NOTIFICATION_ID);
-        await this.#reloadAllLogins();
-        break;
+      case "walletstore-crypto-credential": {
+        this.#removeNotifications(PRIMARY_PASSWORD_NOTIFICATION_ID)
+        await this.#reloadAllCredentials()
+        break
       }
-      case "passwordmgr-crypto-loginCanceled": {
-        this.#showPrimaryPasswordLoginNotifications();
-        break;
+      case "walletstore-crypto-credentialCanceled": {
+        this.#showPrimaryPasswordLoginNotifications()
+        break
       }
-      case lazy.UIState.ON_UPDATE: {
-        this.#messageSubscribers("AboutLogins:SyncState", this.getSyncState());
-        break;
-      }
-      case "passwordmgr-storage-changed": {
+      case "walletstore-storage-changed": {
         switch (type) {
-          case "addLogin": {
-            await this.#addLogin(subject);
-            break;
+          case "addCredential": {
+            await this.#addCredential(subject)
+            break
           }
-          case "modifyLogin": {
-            this.#modifyLogin(subject);
-            break;
+          case "modifyCredential": {
+            this.#modifyCredential(subject)
+            break
           }
-          case "removeLogin": {
-            this.#removeLogin(subject);
-            break;
+          case "removeCredential": {
+            this.#removeCredential(subject)
+            break
           }
-          case "removeAllLogins": {
-            this.#removeAllLogins();
-            break;
+          case "removeAllCredentials": {
+            this.#removeAllCredentials()
+            break
           }
         }
       }
     }
   }
 
-  async #addLogin(subject) {
-    const login = convertSubjectToLogin(subject);
-    if (!login) {
-      return;
+  async #addCredential(subject) {
+    const credential = convertSubjectToCredential(subject)
+    if (!credential) {
+      return
     }
 
-    if (lazy.BREACH_ALERTS_ENABLED) {
-      this.#messageSubscribers(
-        "AboutLogins:UpdateBreaches",
-        await lazy.LoginBreaches.getPotentialBreachesByLoginGUID([login])
-      );
-      if (lazy.VULNERABLE_PASSWORDS_ENABLED) {
-        this.#messageSubscribers(
-          "AboutLogins:UpdateVulnerableLogins",
-          await lazy.LoginBreaches.getPotentiallyVulnerablePasswordsByLoginGUID(
-            [login]
-          )
-        );
-      }
-    }
-
-    this.#messageSubscribers("AboutLogins:LoginAdded", login);
+    this.#messageSubscribers("AboutWallet:CredentialAdded", credential)
   }
 
-  async #modifyLogin(subject) {
-    subject.QueryInterface(Ci.nsIArrayExtensions);
-    const login = convertSubjectToLogin(subject.GetElementAt(1));
-    if (!login) {
-      return;
+  async #modifyCredential(subject) {
+    subject.QueryInterface(Ci.nsIArrayExtensions)
+    const credential = convertSubjectToCredential(subject.GetElementAt(1))
+    if (!credential) {
+      return
     }
 
-    if (lazy.BREACH_ALERTS_ENABLED) {
-      let breachesForThisLogin =
-        await lazy.LoginBreaches.getPotentialBreachesByLoginGUID([login]);
-      let breachData = breachesForThisLogin.size
-        ? breachesForThisLogin.get(login.guid)
-        : false;
-      this.#messageSubscribers(
-        "AboutLogins:UpdateBreaches",
-        new Map([[login.guid, breachData]])
-      );
-      if (lazy.VULNERABLE_PASSWORDS_ENABLED) {
-        let vulnerablePasswordsForThisLogin =
-          await lazy.LoginBreaches.getPotentiallyVulnerablePasswordsByLoginGUID(
-            [login]
-          );
-        let isLoginVulnerable = !!vulnerablePasswordsForThisLogin.size;
-        this.#messageSubscribers(
-          "AboutLogins:UpdateVulnerableLogins",
-          new Map([[login.guid, isLoginVulnerable]])
-        );
-      }
+    this.#messageSubscribers("AboutWallet:CredentialModified", credential)
+  }
+
+  #removeCredential(subject) {
+    const credential = convertSubjectToCredential(subject)
+    if (!credential) {
+      return
     }
-
-    this.#messageSubscribers("AboutLogins:LoginModified", login);
+    this.#messageSubscribers("AboutWallet:CredentialRemoved", credential)
   }
 
-  #removeLogin(subject) {
-    const login = convertSubjectToLogin(subject);
-    if (!login) {
-      return;
-    }
-    this.#messageSubscribers("AboutLogins:LoginRemoved", login);
+  #removeAllCredentials() {
+    this.#messageSubscribers("AboutWallet:RemoveAllCredentials", [])
   }
 
-  #removeAllLogins() {
-    this.#messageSubscribers("AboutLogins:RemoveAllLogins", []);
-  }
-
-  async #reloadAllLogins() {
-    let logins = await this.getAllLogins();
-    this.#messageSubscribers("AboutLogins:AllLogins", logins);
-    await this.sendAllLoginRelatedObjects(logins);
+  async #reloadAllCredentials() {
+    let credentials = await this.getAllCredentials()
+    this.#messageSubscribers("AboutWallet:AllCredentials", credentials)
   }
 
   #showPrimaryPasswordLoginNotifications() {
@@ -656,15 +333,15 @@ class AboutLoginsInternal {
       id: PRIMARY_PASSWORD_NOTIFICATION_ID,
       priority: "PRIORITY_WARNING_MEDIUM",
       iconURL: "chrome://browser/skin/login.svg",
-      messageId: "about-logins-primary-password-notification-message",
+      messageId: "about-wallet-primary-password-notification-message",
       buttonIds: ["master-password-reload-button"],
       onClicks: [
         function onReloadClick(browser) {
-          browser.reload();
+          browser.reload()
         },
       ],
-    });
-    this.#messageSubscribers("AboutLogins:PrimaryPasswordAuthRequired");
+    })
+    this.#messageSubscribers("AboutWallet:PrimaryPasswordAuthRequired")
   }
 
   #showNotifications({
@@ -677,30 +354,30 @@ class AboutLoginsInternal {
     extraFtl = [],
   } = {}) {
     for (let subscriber of this.#subscriberIterator()) {
-      let browser = subscriber.embedderElement;
-      let MozXULElement = browser.ownerGlobal.MozXULElement;
-      MozXULElement.insertFTLIfNeeded("browser/aboutLogins.ftl");
+      let browser = subscriber.embedderElement
+      let MozXULElement = browser.ownerGlobal.MozXULElement
+      MozXULElement.insertFTLIfNeeded("browser/aboutWallet.ftl")
       for (let ftl of extraFtl) {
-        MozXULElement.insertFTLIfNeeded(ftl);
+        MozXULElement.insertFTLIfNeeded(ftl)
       }
 
       // If there's already an existing notification bar, don't do anything.
-      let { gBrowser } = browser.ownerGlobal;
-      let notificationBox = gBrowser.getNotificationBox(browser);
-      let notification = notificationBox.getNotificationWithValue(id);
+      let { gBrowser } = browser.ownerGlobal
+      let notificationBox = gBrowser.getNotificationBox(browser)
+      let notification = notificationBox.getNotificationWithValue(id)
       if (notification) {
-        continue;
+        continue
       }
 
-      let buttons = [];
+      let buttons = []
       for (let i = 0; i < buttonIds.length; i++) {
         buttons[i] = {
           "l10n-id": buttonIds[i],
           popup: null,
           callback: () => {
-            onClicks[i](browser);
+            onClicks[i](browser)
           },
-        };
+        }
       }
 
       notification = notificationBox.appendNotification(
@@ -711,38 +388,39 @@ class AboutLoginsInternal {
           priority: notificationBox[priority],
         },
         buttons
-      );
+      )
     }
   }
 
   #removeNotifications(notificationId) {
     for (let subscriber of this.#subscriberIterator()) {
-      let browser = subscriber.embedderElement;
-      let { gBrowser } = browser.ownerGlobal;
-      let notificationBox = gBrowser.getNotificationBox(browser);
+      let browser = subscriber.embedderElement
+      let { gBrowser } = browser.ownerGlobal
+      let notificationBox = gBrowser.getNotificationBox(browser)
       let notification =
-        notificationBox.getNotificationWithValue(notificationId);
+        notificationBox.getNotificationWithValue(notificationId)
       if (!notification) {
-        continue;
+        continue
       }
-      notificationBox.removeNotification(notification);
+      notificationBox.removeNotification(notification)
     }
   }
 
   *#subscriberIterator() {
     let subscribers = ChromeUtils.nondeterministicGetWeakSetKeys(
       this.subscribers
-    );
+    )
     for (let subscriber of subscribers) {
-      let browser = subscriber.embedderElement;
-      if (
-        browser?.remoteType != EXPECTED_ABOUTLOGINS_REMOTE_TYPE ||
-        browser?.contentPrincipal?.originNoSuffix != ABOUT_LOGINS_ORIGIN
-      ) {
-        this.subscribers.delete(subscriber);
-        continue;
-      }
-      yield subscriber;
+      let browser = subscriber.embedderElement
+      // TODO: (ssb) review security
+      // if (
+      //   browser?.remoteType != EXPECTED_ABOUTWALLET_REMOTE_TYPE ||
+      //   browser?.contentPrincipal?.originNoSuffix != ABOUT_WALLET_ORIGIN
+      // ) {
+      //   this.subscribers.delete(subscriber)
+      //   continue
+      // }
+      yield subscriber
     }
   }
 
@@ -750,8 +428,8 @@ class AboutLoginsInternal {
     for (let subscriber of this.#subscriberIterator()) {
       try {
         if (subscriber.currentWindowGlobal) {
-          let actor = subscriber.currentWindowGlobal.getActor("AboutLogins");
-          actor.sendAsyncMessage(name, details);
+          let actor = subscriber.currentWindowGlobal.getActor("AboutWallet")
+          actor.sendAsyncMessage(name, details)
         }
       } catch (ex) {
         if (ex.result == Cr.NS_ERROR_NOT_INITIALIZED) {
@@ -759,108 +437,50 @@ class AboutLoginsInternal {
           lazy.log.debug(
             "messageSubscribers: exception when calling sendAsyncMessage",
             ex
-          );
+          )
         } else {
-          throw ex;
+          throw ex
         }
       }
     }
   }
 
-  async getAllLogins() {
+  async getAllCredentials() {
     try {
-      let logins = await lazy.LoginHelper.getAllUserFacingLogins();
-      return logins
-        .map(lazy.LoginHelper.loginToVanillaObject)
-        .map(augmentVanillaLoginObject);
+      let credentials = await lazy.WalletHelper.getAllCredentials()
+      return credentials.map(lazy.WalletHelper.credentialToVanillaObject)
     } catch (e) {
       if (e.result == Cr.NS_ERROR_ABORT) {
-        // If the user cancels the MP prompt then return no logins.
-        return [];
+        // If the user cancels the MP prompt then return no credentials.
+        return []
       }
-      throw e;
+      throw e
     }
-  }
-
-  async sendAllLoginRelatedObjects(logins, browsingContext) {
-    let sendMessageFn = (name, details) => {
-      if (browsingContext?.currentWindowGlobal) {
-        let actor = browsingContext.currentWindowGlobal.getActor("AboutLogins");
-        actor.sendAsyncMessage(name, details);
-      } else {
-        this.#messageSubscribers(name, details);
-      }
-    };
-
-    if (lazy.BREACH_ALERTS_ENABLED) {
-      sendMessageFn(
-        "AboutLogins:SetBreaches",
-        await lazy.LoginBreaches.getPotentialBreachesByLoginGUID(logins)
-      );
-      if (lazy.VULNERABLE_PASSWORDS_ENABLED) {
-        sendMessageFn(
-          "AboutLogins:SetVulnerableLogins",
-          await lazy.LoginBreaches.getPotentiallyVulnerablePasswordsByLoginGUID(
-            logins
-          )
-        );
-      }
-    }
-  }
-
-  getSyncState() {
-    const state = lazy.UIState.get();
-    // As long as Sync is configured, about:logins will treat it as
-    // authenticated. More diagnostics and error states can be handled
-    // by other more Sync-specific pages.
-    const loggedIn = state.status != lazy.UIState.STATUS_NOT_CONFIGURED;
-    const passwordSyncEnabled = state.syncEnabled && lazy.PASSWORD_SYNC_ENABLED;
-
-    return {
-      loggedIn,
-      email: state.email,
-      avatarURL: state.avatarURL,
-      fxAccountsEnabled: lazy.FXA_ENABLED,
-      passwordSyncEnabled,
-    };
-  }
-
-  onPasswordSyncEnabledPreferenceChange(data, previous, latest) {
-    this.#messageSubscribers("AboutLogins:SyncState", this.getSyncState());
   }
 
   #observedTopics = [
-    "passwordmgr-crypto-login",
-    "passwordmgr-crypto-loginCanceled",
-    "passwordmgr-storage-changed",
-    "passwordmgr-reload-all",
-    lazy.UIState.ON_UPDATE,
-  ];
+    "walletstore-crypto-credential",
+    "walletstore-crypto-credentialCanceled",
+    "walletstore-storage-changed",
+    "walletstore-reload-all",
+  ]
 
   addObservers() {
     if (!this.#observersAdded) {
       for (const topic of this.#observedTopics) {
-        Services.obs.addObserver(this, topic);
+        Services.obs.addObserver(this, topic)
       }
-      this.#observersAdded = true;
+      this.#observersAdded = true
     }
   }
 
   #removeObservers() {
     for (const topic of this.#observedTopics) {
-      Services.obs.removeObserver(this, topic);
+      Services.obs.removeObserver(this, topic)
     }
-    this.#observersAdded = false;
+    this.#observersAdded = false
   }
 }
 
-let AboutLogins = new AboutLoginsInternal();
-export var _AboutLogins = AboutLogins;
-
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "PASSWORD_SYNC_ENABLED",
-  "services.sync.engine.passwords",
-  false,
-  AboutLogins.onPasswordSyncEnabledPreferenceChange
-);
+let AboutWallet = new AboutWalletInternal()
+export var _AboutWallet = AboutWallet

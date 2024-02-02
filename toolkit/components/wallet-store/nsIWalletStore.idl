@@ -2,7 +2,7 @@
 // the QueryInterface method.
 #include "nsISupports.idl"
 
-interface nsIWalletInfo;
+interface nsICredentialInfo;
 interface nsIPropertyBag; // TODO: (ssb) currently remain loginmangr. Decide whether to drop or modify.
 
 // `scriptable` designates that this object will be used with JavaScript
@@ -16,10 +16,10 @@ interface nsIWalletSearchCallback : nsISupports
   /**
    * Called when a search is complete and the results are ready.
    *
-   * @param WalletCredentials
+   * @param aCredentials
    *        Credentials found in the search.
    */
-  void onSearchComplete(in Array<nsIWalletInfo> aWalletCredentials);
+  void onSearchComplete(in Array<nsICredentialInfo> aCredentials);
 };
 
 /**
@@ -30,288 +30,121 @@ interface nsIWalletStore : nsISupports {
   /**
    * This promise is resolved when initialization is complete, and is rejected
    * in case initialization failed.  This includes the initial loading of the
-   * login data as well as any migration from previous versions.
+   * credential data as well as any migration from previous versions.
    *
-   * Calling any method of nsILoginManager before this promise is resolved
+   * Calling any method of nsIWalletStore before this promise is resolved
    * might trigger the synchronous initialization fallback.
    */
   readonly attribute Promise initializationPromise;
 
   /**
-   * Store a new login in the login manager.
+   * Store a new credential in the credential store.
    *
-   * @param aWallet
-   *        The login to be added.
-   * @return a clone of the login info with the guid set (even if it was not provided)
+   * @param aCredential
+   *        The credential to be added.
+   * @return a clone of the credential info with the guid set (even if it was not provided)
    *
-   * Default values for the login's nsILoginMetaInfo properties will be
+   * Default values for the credential's nsICredentialMetaInfo properties will be
    * created. However, if the caller specifies non-default values, they will
    * be used instead.
    */
-  nsIWalletInfo addWallet(in nsIWalletInfo aWallet);
+  nsICredentialInfo addCredential(in nsICredentialInfo aCredential);
 
   /**
-   * Like addWallet, but asynchronous.
+   * Like addCredential, but asynchronous.
    *
-   * @param aWallet
-   *        The login to be added.
-   * @return A promise which resolves with a cloned login with the guid set.
+   * @param aCredential
+   *        The credential to be added.
+   * @return A promise which resolves with a cloned credential with the guid set.
    *
-   * Default values for each login's nsILoginMetaInfo properties will be
+   * Default values for each credential's nsICredentialMetaInfo properties will be
    * created. However, if the caller specifies non-default values, they will
    * be used instead.
    */
-  Promise addWalletAsync(in nsIWalletInfo aWallet);
+  Promise addCredentialAsync(in nsICredentialInfo aCredential);
 
   /**
-   * Like addWallet, but asynchronous and for many logins.
+   * Remove a credential from the credential store.
    *
-   * @param aWallets
-   *        A JS Array of nsIWalletInfos to add.
-   * @return A promise which resolves with a JS Array of cloned logins with
-   *         the guids set.
+   * @param aCredential
+   *        The credential to be removed.
    *
-   * Default values for each login's nsILoginMetaInfo properties will be
-   * created. However, if the caller specifies non-default values, they will
-   * be used instead.
+   * The specified credential must exactly match a stored credential. However, the
+   * values of any nsICredentialMetaInfo properties are ignored.
    */
-  Promise addWallets(in jsval aWallets);
+  void removeCredential(in nsICredentialInfo aCredential);
 
   /**
-   * Remove a login from the login manager.
+   * Modify an existing credential in the credential store.
    *
-   * @param aWallet
-   *        The login to be removed.
+   * @param oldCredential
+   *        The credential to be modified.
+   * @param newCredentialData
+   *        The new credential values (either a nsICredentialInfo or nsIProperyBag)
    *
-   * The specified login must exactly match a stored login. However, the
-   * values of any nsILoginMetaInfo properties are ignored.
-   */
-  void removeWallet(in nsIWalletInfo aWallet);
-
-  /**
-   * Modify an existing login in the login manager.
+   * If newCredentialData is a nsICredentialInfo, all of the old credential's nsICredentialInfo
+   * properties are changed to the values from newCredentialData (but the old
+   * credential's nsICredentialMetaInfo properties are unmodified).
    *
-   * @param oldWallet
-   *        The login to be modified.
-   * @param newLoginData
-   *        The new login values (either a nsIWalletInfo or nsIProperyBag)
-   *
-   * If newLoginData is a nsIWalletInfo, all of the old login's nsIWalletInfo
-   * properties are changed to the values from newLoginData (but the old
-   * login's nsILoginMetaInfo properties are unmodified).
-   *
-   * If newLoginData is a nsIPropertyBag, only the specified properties
-   * will be changed. The nsILoginMetaInfo properties of oldWallet can be
+   * If newCredentialData is a nsIPropertyBag, only the specified properties
+   * will be changed. The nsICredentialMetaInfo properties of oldCredential can be
    * changed in this manner.
    *
    * If the propertybag contains an item named "timesUsedIncrement", the
-   * login's timesUsed property will be incremented by the item's value.
+   * credential's timesUsed property will be incremented by the item's value.
    */
-  void modifyWallet(in nsIWalletInfo oldWallet, in nsISupports newLoginData);
+  void modifyCredential(in nsICredentialInfo oldCredential, in nsISupports newCredentialData);
 
   /**
-   * Record that the password of a saved login was used (e.g. submitted or copied).
-   *
-   * @param {nsIWalletInfo} aWallet
-   *        The login record of the password that was used.
-   * @param {boolean} aPrivateContextWithoutExplicitConsent
-   *        If the use was in private browsing AND without the user explicitly choosing to save/update.
-   *        Login use metadata will not be updated in this case but it will stil be counted for telemetry.
-   * @param {AString} aWalletType
-   *        One of "form_login", "form_password", "auth_login", or "prompt_login".
-   *        See saved_login_used in Events.yaml.
-   *        Don't assume that an auth. login is never used in a form and vice-versa. This argument
-   *        indicates the context of how it was used.
-   * @param {boolean} aFilled
-   *        Whether the login was filled, rather than being typed manually.
-   *
-   * If only the username was used, this method shouldn't be called as we don't
-   * want to double-count the use if both the username and password are copied.
-   * Copying of the username normally precedes the copying of the password anyways.
-   */
-  void recordPasswordUse(in nsIWalletInfo aWallet, in boolean aPrivateContextWithoutExplicitConsent, in AString aWalletType, in boolean aFilled);
-
-  /**
-   * Remove all stored user facing logins.
-   *
-   * This will remove all the logins that a user can access through about:logins.
-   * This will not remove the FxA Sync key which is stored with the rest of a user's logins
-   * but is not accessible through about:logins
-   *
-   * The browser sanitization feature allows the user to clear any stored
-   * passwords. This interface allows that to be done without getting each
-   * login first.
+   * Completely remove all credentials.
    *
    */
-  void removeAllUserFacingWallets();
+  void removeAllCredentials();
 
   /**
-   * Completely remove all logins, including the user's FxA Sync key.
-   *
-   */
-  void removeAllWallets();
-
-  /**
-   * Fetch all logins in the login manager. An array is always returned;
-   * if there are no logins the array is empty. Decryption is handled in
+   * Fetch all credentials in the credential store. An array is always returned;
+   * if there are no credentials the array is empty. Decryption is handled in
    * one batch.
    *
-   * @return A promise which resolves with a JS Array of nsIWalletInfo objects.
+   * @return A promise which resolves with a JS Array of nsICredentialInfo objects.
    */
-  Promise getAllWallets();
+  Promise getAllCredentials();
 
   /**
-   * Like getAllWallets, but with a callback returning the search results.
+   * Like getAllCredentials, but with a callback returning the search results.
    *
    * @param {nsIWalletSearchCallback} aCallback
    *        The interface to notify when the search is complete.
    *
    */
-  void getAllWalletsWithCallback(in nsIWalletSearchCallback aCallback);
+  void getAllCredentialsWithCallback(in nsIWalletSearchCallback aCallback);
 
   /**
-   * Obtain a list of all origins for which password saving is disabled.
+   * Search for credentials matching the specified criteria, as with
+   * findCredentials(). This interface only returns the number of matching
+   * credentials (and not the credentials themselves), which allows a caller to
+   * check for credentials without causing the user to be prompted for a primary
+   * password to decrypt the credentials.
    *
-   * @return An array of origin strings. For example: ["https://www.site.com"].
+   * Specify an empty string to match all. A null value will not match any credentials, and
+   * will thus always return a count of 0.
+   * @param protocolName
+   * @param credentialName
    */
-  Array<AString> getAllDisabledHosts();
+  unsigned long countCredentials(in AString protocolName, in AString credentialName);
 
   /**
-   * Check to see if saving logins has been disabled for an origin.
-   *
-   * @param aHost
-   *        The origin to check. For example: "http://foo.com".
-   */
-  boolean getWalletSavingEnabled(in AString aHost);
-
-  /**
-   * Disable (or enable) storing logins for the specified origin. When
-   * disabled, the login manager will not prompt to store logins for
-   * that origin. Existing logins are not affected.
-   *
-   * @param aHost
-   *        The origin to set. For example: "http://foo.com".
-   * @param isEnabled
-   *        Specify if saving logins should be enabled (true) or
-   *        disabled (false)
-   */
-  void setWalletSavingEnabled(in AString aHost, in boolean isEnabled);
-
-  /**
-   * Search for logins matching the specified criteria. Called when looking
-   * for logins that might be applicable to a form or authentication request.
-   *
-   * @deprecated Use `searchWalletsAsync` instead. This function is retained
-   * for Thunderbird compatibility.
-   *
-   * @param aOrigin
-   *        The origin to restrict searches to. For example: "http://www.site.com".
-   *        To find logins for a given nsIURI, you would typically pass in
-   *        its prePath (excluding userPass).
-   * @param aActionOrigin
-   *        For form logins, this argument should be the origin to which the
-   *        form will be submitted, not the whole URL.
-   *        For HTTP auth. logins, specify null.
-   *        An empty string ("") will match any value (except null).
-   * @param aHttpRealm
-   *        For HTTP auth. logins, this argument should be the HTTP Realm
-   *        for which the login applies. This is obtained from the
-   *        WWW-Authenticate header. See RFC2617. For form logins,
-   *        specify null.
-   *        An empty string ("") will match any value (except null).
-   * @return An array of nsIWalletInfo objects.
-   */
-  Array<nsIWalletInfo> findWallets(in AString aOrigin, in AString aActionOrigin,
-                                 in AString aHttpRealm);
-
-  /**
-   * Search for logins matching the specified criteria, as with
-   * findWallets(). This interface only returns the number of matching
-   * logins (and not the logins themselves), which allows a caller to
-   * check for logins without causing the user to be prompted for a primary
-   * password to decrypt the logins.
-   *
-   * @param aOrigin
-   *        The origin to restrict searches to. Specify an empty string
-   *        to match all origins. A null value will not match any logins, and
-   *        will thus always return a count of 0.
-   * @param aActionOrigin
-   *        The origin to which a form login will be submitted. To match any
-   *        form login, specify an empty string. To not match any form
-   *        login, specify null.
-   * @param aHttpRealm
-   *        The HTTP Realm for which the login applies. To match logins for
-   *        any realm, specify an empty string. To not match logins for any
-   *        realm, specify null.
-   */
-  unsigned long countWallets(in AString aOrigin, in AString aActionOrigin,
-                            in AString aHttpRealm);
-
-  /**
-   * Asynchonously search for logins in the login manager. The Promise always
-   * resolves to an array; if there are no logins the array is empty.
+   * Asynchonously search for credentials in the wallet store. The Promise always
+   * resolves to an array; if there are no credentials the array is empty.
    *
    * @param {object} matchData
    *        The data used to search as a JS object. This does not follow the same
-   *        requirements as findWallets for those fields. Wildcard matches are
+   *        requirements as findCredentials for those fields. Wildcard matches are
    *        simply not specified. If a `guid` is specified then no other properties
    *        are used (outside of GeckoView).
-   * @return A promise resolving to an array of nsIWalletInfo objects.
+   * @return A promise resolving to an array of nsICredentialInfo objects.
    */
-  Promise searchWalletsAsync(in jsval matchData);
-
-  /**
-   * Search for logins in the login manager. An array is always returned;
-   * if there are no logins the array is empty.
-   * @deprecated New code should use `searchWalletsAsync`.
-   *             Only autocomplete, prompt, and test code still use this.
-   *
-   * @param matchData
-   *        The data used to search. This does not follow the same
-   *        requirements as findWallets for those fields. Wildcard matches are
-   *        simply not specified. If a `guid` is specified then no other properties
-   *        are used (outside of GeckoView).
-   * @return An array of nsIWalletInfo objects.
-   */
-  Array<nsIWalletInfo> searchWallets(in nsIPropertyBag matchData);
-
-  /**
-   * Returns the "sync id" used by Sync to know whether the store is current with
-   * respect to the sync servers.
-   *
-   * Returns null if the data doesn't exist or if the data can't be
-   * decrypted (including if the primary-password prompt is cancelled). This is
-   * OK for Sync as it can't even begin syncing if the primary-password is
-   * locked as the sync encrytion keys are stored in this login manager.
-   */
-  Promise getSyncID();
-
-  /**
-   * Sets the "sync id" used by Sync to know whether the store is current with
-   * respect to the sync servers. May be set to null.
-   *
-   * Throws if the data can't be encrypted (including if the primary-password
-   * prompt is cancelled)
-   */
-  Promise setSyncID(in AString syncID);
-
-  /**
-   * Returns the timestamp of the last sync as a double (in seconds since Epoch
-   * rounded to two decimal places), or 0.0 if the data doesn't exist.
-   */
-  Promise getLastSync();
-
-  /**
-   * Sets the timestamp of the last sync.
-   */
-  Promise setLastSync(in double timestamp);
-
-  /**
-   * Ensures that the local sync ID for the engine matches the sync ID for
-   * the collection on the server. If they don't match, then we set
-    * the local sync ID to newSyncID and reset the last sync timestamp.
-   */
-  Promise ensureCurrentSyncID(in AString newSyncID);
+  Promise searchCredentialsAsync(in jsval matchData);
 
  /**
   * True when a primary password prompt is being displayed.
@@ -320,7 +153,7 @@ interface nsIWalletStore : nsISupports {
 
  /**
   * True when the primary password has already been entered, and so a caller
-  * can ask for decrypted logins without triggering a prompt.
+  * can ask for decrypted credentials without triggering a prompt.
   */
   readonly attribute boolean isLoggedIn;
 };

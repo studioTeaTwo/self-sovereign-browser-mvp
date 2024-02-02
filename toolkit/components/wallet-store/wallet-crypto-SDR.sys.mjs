@@ -5,16 +5,16 @@
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
+  WalletHelper: "resource://gre/modules/WalletHelper.sys.mjs",
 });
 
-export function LoginManagerCrypto_SDR() {
+export function WalletStoreCrypto_SDR() {
   this.init();
 }
 
-LoginManagerCrypto_SDR.prototype = {
-  classID: Components.ID("{dc6c2976-0f73-4f1f-b9ff-3d72b4e28309}"),
-  QueryInterface: ChromeUtils.generateQI(["nsILoginManagerCrypto"]),
+WalletStoreCrypto_SDR.prototype = {
+  classID: Components.ID("{20AA1EF2-EA8B-4270-B81B-A872A745152F}"),
+  QueryInterface: ChromeUtils.generateQI(["nsIWalletStoreCrypto"]),
 
   __decoderRing: null, // nsSecretDecoderRing service
   get _decoderRing() {
@@ -96,9 +96,9 @@ LoginManagerCrypto_SDR.prototype = {
       this._uiBusy = false;
       // If we triggered a primary password prompt, notify observers.
       if (!wasLoggedIn && this.isLoggedIn) {
-        this._notifyObservers("passwordmgr-crypto-login");
+        this._notifyObservers("walletstore-crypto-credential");
       } else if (canceledMP) {
-        this._notifyObservers("passwordmgr-crypto-loginCanceled");
+        this._notifyObservers("walletstore-crypto-credentialCanceled");
       }
     }
     return cipherText;
@@ -148,9 +148,9 @@ LoginManagerCrypto_SDR.prototype = {
       this._uiBusy = false;
       // If we triggered a primary password prompt, notify observers.
       if (!wasLoggedIn && this.isLoggedIn) {
-        this._notifyObservers("passwordmgr-crypto-login");
+        this._notifyObservers("walletstore-crypto-credential");
       } else if (canceledMP) {
-        this._notifyObservers("passwordmgr-crypto-loginCanceled");
+        this._notifyObservers("walletstore-crypto-credentialCanceled");
       }
     }
     return cipherTexts;
@@ -203,9 +203,9 @@ LoginManagerCrypto_SDR.prototype = {
       this._uiBusy = false;
       // If we triggered a primary password prompt, notify observers.
       if (!wasLoggedIn && this.isLoggedIn) {
-        this._notifyObservers("passwordmgr-crypto-login");
+        this._notifyObservers("walletstore-crypto-credential");
       } else if (canceledMP) {
-        this._notifyObservers("passwordmgr-crypto-loginCanceled");
+        this._notifyObservers("walletstore-crypto-credentialsCanceled");
       }
     }
 
@@ -259,9 +259,9 @@ LoginManagerCrypto_SDR.prototype = {
       this._uiBusy = false;
       // If we triggered a primary password prompt, notify observers.
       if (!wasLoggedIn && this.isLoggedIn) {
-        this._notifyObservers("passwordmgr-crypto-login");
+        this._notifyObservers("walletstore-crypto-credential");
       } else if (canceledMP) {
-        this._notifyObservers("passwordmgr-crypto-loginCanceled");
+        this._notifyObservers("walletstore-crypto-credentialCanceled");
       }
     }
     return plainTexts;
@@ -289,7 +289,7 @@ LoginManagerCrypto_SDR.prototype = {
    * defaultEncType
    */
   get defaultEncType() {
-    return Ci.nsILoginManagerCrypto.ENCTYPE_SDR;
+    return Ci.nsIWalletStoreCrypto.ENCTYPE_SDR;
   },
 
   /*
@@ -299,9 +299,9 @@ LoginManagerCrypto_SDR.prototype = {
     this.log(`Prompted for a primary password, notifying for ${topic}`);
     Services.obs.notifyObservers(null, topic);
   },
-}; // end of nsLoginManagerCrypto_SDR implementation
+}; // end of nsWalletStoreCrypto_SDR implementation
 
-ChromeUtils.defineLazyGetter(LoginManagerCrypto_SDR.prototype, "log", () => {
-  let logger = lazy.LoginHelper.createLogger("Login crypto");
+ChromeUtils.defineLazyGetter(WalletStoreCrypto_SDR.prototype, "log", () => {
+  let logger = lazy.WalletHelper.createLogger("Wallet crypto");
   return logger.log.bind(logger);
 });

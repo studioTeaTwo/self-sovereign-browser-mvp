@@ -42,14 +42,11 @@ export default class LNC {
         config.namespace,
         config.password
       )
-      setTimeout(() => {
-        this.credentials.init()
-        // don't overwrite an existing serverHost if we're already paired
-        if (!this.credentials.isPaired)
-          this.credentials.serverHost = config.serverHost
-        if (config.pairingPhrase)
-          this.credentials.pairingPhrase = config.pairingPhrase
-      })
+      // don't overwrite an existing serverHost if we're already paired
+      if (!this.credentials.isPaired)
+        this.credentials.serverHost = config.serverHost
+      if (config.pairingPhrase)
+        this.credentials.pairingPhrase = config.pairingPhrase
     }
 
     // TODO: pull Go off of the global state

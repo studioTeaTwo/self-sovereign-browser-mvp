@@ -6,7 +6,7 @@ It does not contain any logic for saving or communication with the extension or 
 */
 
 import React from "react"
-import ReactDOM from "react-dom"
+import { createRoot } from "react-dom/client"
 import { ChakraProvider } from "@chakra-ui/react"
 import Home from "../components/Home"
 
@@ -24,11 +24,12 @@ HomeOverlay.prototype = {
 
     this.active = true
 
-    ReactDOM.render(
+    const container = document.querySelector(`body`)
+    const root = createRoot(container)
+    root.render(
       <ChakraProvider>
         <Home />
-      </ChakraProvider>,
-      document.querySelector(`body`)
+      </ChakraProvider>
     )
 
     // if (window?.matchMedia(`(prefers-color-scheme: dark)`).matches) {
