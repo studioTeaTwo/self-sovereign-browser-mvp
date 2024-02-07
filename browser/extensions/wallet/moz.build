@@ -8,21 +8,24 @@ DEFINES["MOZ_APP_VERSION"] = CONFIG["MOZ_APP_VERSION"]
 DEFINES["MOZ_APP_MAXVERSION"] = CONFIG["MOZ_APP_MAXVERSION"]
 
 FINAL_TARGET_FILES.features["addons-wallet@teatwo.dev"] += [
-    "background.js",
     "manifest.json",
-]
-
-FINAL_TARGET_FILES.features["addons-wallet@teatwo.dev"]["contents"] += [
-    "contents/wallet.js",
-]
-
-FINAL_TARGET_FILES.features["addons-wallet@teatwo.dev"]["inpages"] += [
-    "inpages/inject.js",
 ]
 
 FINAL_TARGET_FILES.features["addons-wallet@teatwo.dev"]["experiment-apis"] += [
     "experiment-apis/addonsWallet.js",
     "experiment-apis/addonsWallet.json",
+]
+
+FINAL_TARGET_FILES.features["addons-wallet@teatwo.dev"]["backgrounds"] += [
+    "backgrounds/backgrounds.bundle.js",
+]
+
+FINAL_TARGET_FILES.features["addons-wallet@teatwo.dev"]["contents"] += [
+    "contents/contents.bundle.js",
+]
+
+FINAL_TARGET_FILES.features["addons-wallet@teatwo.dev"]["inpages"] += [
+    "inpages/inpages.bundle.js",
 ]
 
 # BROWSER_CHROME_MANIFESTS += ["tests/browser/browser.toml"]

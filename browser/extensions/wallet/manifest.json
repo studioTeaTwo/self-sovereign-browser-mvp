@@ -18,7 +18,7 @@
   ],
 
   "background": {
-    "scripts": ["background.js"]
+    "scripts": ["backgrounds/backgrounds.bundle.js"]
   },
 
   "experiment_apis": {
@@ -37,9 +37,9 @@
     {
       "matches": ["*://*/*"],
       "js": [
-        "contents/wallet.js"
+        "contents/contents.bundle.js"
       ]
     }
   ],
-  "web_accessible_resources": ["inpages/inject.js"]
+  "web_accessible_resources": ["inpages/inpages.bundle.js"]
 }
