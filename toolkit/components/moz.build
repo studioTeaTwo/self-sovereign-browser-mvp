@@ -79,6 +79,7 @@ DIRS += [
     "url-classifier",
     "urlformatter",
     "viewsource",
+    "wallet-store",
     "windowcreator",
     "windowwatcher",
     "workerloader",

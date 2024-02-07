@@ -5,27 +5,25 @@
 import React, { useState, useEffect, useCallback } from "react"
 import { Box, Grid, GridItem } from "@chakra-ui/react"
 import Menu from "./Menu"
+import Bitcoin from "./bitcoin"
 import Lightning from "./lightning"
 import Nostr from "./nostr"
 
-// import panelMessaging from "../../messages";
-
-type MenuItem = "lightning" | "nostr"
+type MenuItem = "bitcoin" | "lightning" | "nostr"
 
 function Home(props) {
   const [selectedMenu, setSelectedMenu] = useState<MenuItem>("lightning")
 
-  useEffect(() => {
-    // tell back end we're ready
-    // panelMessaging.sendMessage("WALLET_show_home");
-  }, [])
+  useEffect(() => {}, [])
 
   const setMenu = (menuItem: MenuItem) => {
     setSelectedMenu(menuItem)
   }
 
   const switchContent = () => {
-    if (selectedMenu === "lightning") {
+    if (selectedMenu === "bitcoin") {
+      return <Bitcoin />
+    } else if (selectedMenu === "lightning") {
       return <Lightning />
     } else if (selectedMenu === "nostr") {
       return <Nostr />

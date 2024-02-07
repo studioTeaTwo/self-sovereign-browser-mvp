@@ -254,6 +254,27 @@ let JSWINDOWACTORS = {
     remoteTypes: ["privilegedabout"],
   },
 
+  AboutWallet: {
+    parent: {
+      esModuleURI: "resource:///actors/AboutWalletParent.sys.mjs",
+    },
+    child: {
+      esModuleURI: "resource:///actors/AboutWalletChild.sys.mjs",
+      events: {
+        AboutWalletCreateCredential: {},
+        AboutWalletDeleteCredential: {},
+        AboutWalletInit: {},
+        AboutWalletRecordTelemetryEvent: {},
+        AboutWalletRemoveAllCredentials: {},
+        AboutWalletUpdateCredential: {},
+      },
+    },
+    matches: ["about:wallet", "about:wallet?*"],
+    allFrames: true,
+    // TODO: (ssb) review security
+    // remoteTypes: ["privilegedabout"],
+  },
+
   AboutMessagePreview: {
     parent: {
       esModuleURI: "resource:///actors/AboutMessagePreviewParent.sys.mjs",

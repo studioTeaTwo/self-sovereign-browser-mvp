@@ -8,3 +8,8 @@ with Files("**"):
     BUG_COMPONENT = ("Firefox", "Wallet")
 
 JAR_MANIFESTS += ["jar.mn"]
+
+FINAL_TARGET_FILES.actors += [
+    "actors/AboutWalletChild.sys.mjs",
+    "actors/AboutWalletParent.sys.mjs",
+]

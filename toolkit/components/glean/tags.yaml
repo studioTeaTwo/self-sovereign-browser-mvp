@@ -533,6 +533,8 @@ $schema: moz://mozilla.org/schemas/glean/tags/1-0-0
   description: The Bugzilla component which applies to this object.
 'Toolkit :: XUL Widgets':
   description: The Bugzilla component which applies to this object.
+'Toolkit :: Wallet Store':
+  description: The Bugzilla component which applies to this object.
 'Toolkit :: about:memory':
   description: The Bugzilla component which applies to this object.
 'Web Compatibility :: Tooling & Investigations':
