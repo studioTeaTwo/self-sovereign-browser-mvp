@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 /* eslint-env node */
+"use strict"
 
 const webpack = require("webpack")
 
@@ -9,9 +10,9 @@ module.exports = (env, argv) => {
   return {
     mode: "production",
     entry: {
-      'backgrounds/backgrounds': "./src/backgrounds/index.ts",
-      'contents/contents': "./src/contents/index.ts",
-      'inpages/inpages': "./src/inpages/index.ts",
+      "backgrounds/backgrounds": "./src/backgrounds/index.ts",
+      "contents/contents": "./src/contents/index.ts",
+      "inpages/inpages": "./src/inpages/index.ts",
     },
     output: {
       filename: "[name].bundle.js",
@@ -21,12 +22,16 @@ module.exports = (env, argv) => {
       rules: [
         {
           test: /\.tsx?$/,
-          exclude:  "/node_modules",
+          exclude: "/node_modules",
           loader: "ts-loader",
         },
       ],
     },
     plugins: [
+      new webpack.ProvidePlugin({
+        Buffer: ["buffer", "Buffer"],
+        process: ["process"],
+      }),
       new webpack.DefinePlugin({
         "process.env": {
           NODE_ENV: JSON.stringify(
@@ -37,6 +42,12 @@ module.exports = (env, argv) => {
     ],
     resolve: {
       extensions: [".js", ".ts", ".tsx"],
+      alias: {
+        Buffer: "buffer",
+        process: "process/browser",
+        assert: "assert",
+        stream: "stream-browserify",
+      },
     },
     optimization: {
       minimize: false,

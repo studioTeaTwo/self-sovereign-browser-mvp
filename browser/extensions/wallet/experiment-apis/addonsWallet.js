@@ -38,7 +38,11 @@ this.addonsWallet = class extends ExtensionAPI {
         },
         async getAllCredentials() {
           let credentials = await lazy.WalletHelper.getAllCredentials()
-          return credentials.map(lazy.WalletHelper.credentialToVanillaObject)
+          return credentials.map(lazy.WalletHelper.credentialToVanillaObject).map(credential => {
+            const newVal = {...credential}
+            newVal.properties = JSON.parse(credential.properties)
+            return newVal
+          })
         },
       },
     };
