@@ -1,0 +1,45 @@
+{
+  "manifest_version": 2,
+  "name": "Add-ons Wallet",
+  "version": "0.0.1",
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "addons-wallet@teatwo.dev"
+    }
+  },
+
+  "permissions": [
+    "tabs",
+    "webNavigation",
+    "<all_urls>",
+    "mozillaAddons",
+    "about:wallet*"
+  ],
+
+  "background": {
+    "scripts": ["backgrounds/backgrounds.bundle.js"]
+  },
+
+  "experiment_apis": {
+    "addonsWallet": {
+      "schema": "experiment-apis/addonsWallet.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "script": "experiment-apis/addonsWallet.js",
+        "events": [],
+        "paths": [["addonsWallet"]]
+      }
+    }
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["*://*/*"],
+      "js": [
+        "contents/contents.bundle.js"
+      ]
+    }
+  ],
+  "web_accessible_resources": ["inpages/inpages.bundle.js"]
+}

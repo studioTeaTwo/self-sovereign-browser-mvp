@@ -36,13 +36,15 @@ function Lnc(props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
-  const lncCredential = useMemo(
-    () =>
-      lightningCredentials.filter(
-        (credential) => credential.credentialName === "lnc"
-      )[0],
-    [lightningCredentials]
-  )
+  const lncCredential = useMemo(() => {
+    const val = lightningCredentials.filter(
+      (credential) => credential.credentialName === "lnc"
+    )[0]
+    if (val) {
+      setPhrase(val.secret)
+    }
+    return val
+  }, [lightningCredentials])
   const nodeInfo = useMemo(
     () => lncCredential && lncCredential.properties.nodeInfo,
     [lncCredential]

@@ -1,0 +1,21 @@
+[
+  {
+    "namespace": "addonsWallet",
+    "functions": [
+      {
+        "name": "getAllCredentials",
+        "type": "function",
+        "async": true,
+        "parameters": []
+      },
+      {
+        "name": "getUpdateChannel",
+        "type": "function",
+        "description": "Returns the Firefox channel (AppConstants.MOZ_UPDATE_CHANNEL)",
+        "async": true,
+        "parameters": []
+      }
+    ]
+  }
+]
+
