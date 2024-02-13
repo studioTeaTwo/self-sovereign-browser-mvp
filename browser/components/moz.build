@@ -62,7 +62,6 @@ DIRS += [
     "translations",
     "uitour",
     "urlbar",
-    "wallet",
 ]
 
 DIRS += ["build"]

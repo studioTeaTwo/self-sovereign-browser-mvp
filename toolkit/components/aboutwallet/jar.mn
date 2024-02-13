@@ -1,0 +1,13 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+toolkit.jar:
+  content/global/aboutwallet/css (content/css/*)
+  content/global/aboutwallet/fonts (content/fonts/*)
+  content/global/aboutwallet/img (content/img/*)
+  content/global/aboutwallet/wallet.html (content/wallet.html)
+  content/global/aboutwallet/js/vendor.bundle.js (content/js/vendor.bundle.js)
+  content/global/aboutwallet/js/main.bundle.js (content/js/main.bundle.js)
+  content/global/aboutwallet/js/entry.js (content/js/entry.js)
+  content/global/aboutwallet/wasm/lnc-v0.2.8-alpha.wasm  (content/wasm/lnc-v0.2.8-alpha.wasm)
