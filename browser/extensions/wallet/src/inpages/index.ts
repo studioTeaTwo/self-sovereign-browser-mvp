@@ -33,3 +33,18 @@ function eventEmitter(action, scope) {
   }
 }
 init()
+
+// The demo of webln.getInfo
+window.webln
+  .enable()
+  .then(() => {
+    console.log("webln enabled!")
+    return window.webln.getInfo()
+  })
+  .then((res) => {
+    if (res) {
+      console.log("Good! You've achieved `webln.getInfo`", res)
+    } else {
+      console.log("Sad...You've not achieved `webln.getInfo`", res)
+    }
+  })
