@@ -201,7 +201,10 @@ static const RedirEntry kRedirMap[] = {
          nsIAboutModule::URI_CAN_LOAD_IN_CHILD |
          nsIAboutModule::URI_MUST_LOAD_IN_CHILD},
     {"crashgpu", "about:blank", nsIAboutModule::HIDE_FROM_ABOUTABOUT},
-    {"crashextensions", "about:blank", nsIAboutModule::HIDE_FROM_ABOUTABOUT}};
+    {"crashextensions", "about:blank", nsIAboutModule::HIDE_FROM_ABOUTABOUT},
+    // TODO: (ssb) rearrange later
+    {"wallet", "chrome://global/content/aboutwallet/wallet.html", nsIAboutModule::ALLOW_SCRIPT},
+    };
 static const int kRedirTotal = mozilla::ArrayLength(kRedirMap);
 
 NS_IMETHODIMP
