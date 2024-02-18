@@ -9,7 +9,7 @@ const log = console
 /** The default values for the LncConfig options */
 const DEFAULT_CONFIG = {
   // wasmClientCode: "https://lightning.engineering/lnc-v0.2.8-alpha.wasm",
-  wasmClientCode: "chrome://global/content/aboutwallet/wasm/lnc-v0.2.8-alpha.wasm",
+  wasmClientCode: "resource://aboutwallet/wasm/lnc-v0.2.8-alpha.wasm",
   namespace: "default",
   serverHost: "mailbox.terminal.lightning.today:443",
 } as Required<LncConfig>

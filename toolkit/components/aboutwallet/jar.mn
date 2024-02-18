@@ -10,4 +10,6 @@ toolkit.jar:
   content/global/aboutwallet/js/vendor.bundle.js (content/js/vendor.bundle.js)
   content/global/aboutwallet/js/main.bundle.js (content/js/main.bundle.js)
   content/global/aboutwallet/js/entry.js (content/js/entry.js)
-  content/global/aboutwallet/wasm/lnc-v0.2.8-alpha.wasm  (content/wasm/lnc-v0.2.8-alpha.wasm)
+% resource aboutwallet %aboutwallet/
+  aboutwallet/wasm/lnc-v0.2.8-alpha.wasm  (content/wasm/lnc-v0.2.8-alpha.wasm)
+

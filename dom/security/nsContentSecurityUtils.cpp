@@ -618,9 +618,6 @@ bool nsContentSecurityUtils::IsEvalAllowed(JSContext* cx,
 
       // The Browser Toolbox/Console
       "debugger"_ns,
-
-      // (ssb) wasm integration to enable to fetch "chrome://global/content/aboutwallet/wasm/lnc-v0.2.8-alpha.wasm" in that
-      "chrome://global/content/aboutwallet/js/main.bundle.js"_ns,
   };
 
   // We also permit two specific idioms in eval()-like contexts. We'd like to
